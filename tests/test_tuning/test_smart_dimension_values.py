@@ -28,7 +28,7 @@ import optuna
 import pytest
 
 from lizyml import Model
-from lizyml.core import _model_tuning, _tuning_plan
+from lizyml.core import _model_tuning, _tune_planning, _tuning_plan
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.search_dim import FloatDim, SearchDim
 from lizyml.estimators.lgbm.provider import LGBMProvider
@@ -428,7 +428,8 @@ class _BadDefaultProvider(LGBMProvider):
 def test_a_default_space_dimension_outside_the_rule_is_refused(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(_model_tuning, "get_provider", lambda _c: _BadDefaultProvider())
+    for _mod in (_model_tuning, _tune_planning):
+        monkeypatch.setattr(_mod, "get_provider", lambda _c: _BadDefaultProvider())
     storage = url(tmp_path)
     with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as caught:
         Model(_merge_config(), data=_frame("regression")).tune(

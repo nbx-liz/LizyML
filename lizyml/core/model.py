@@ -60,7 +60,6 @@ from lizyml.core._feature_name_check import (
 from lizyml.core._model_factories import (
     applied_training_overlay,
     build_splitter,
-    check_calibration_param_names,
     check_param_names,
     check_param_values,
     check_smart_managed_overrides,
@@ -73,6 +72,7 @@ from lizyml.core._model_factories import (
     prepare_calibration_params,
     resolve_inner_valid,
 )
+from lizyml.core._model_memory import ModelMemoryMixin
 from lizyml.core._model_metrics import (
     _DEFAULT_METRICS,
     assemble_calibrated_metrics,
@@ -83,8 +83,10 @@ from lizyml.core._model_plots import ModelPlotsMixin
 from lizyml.core._model_predict import run_predict
 from lizyml.core._model_state import FitState
 from lizyml.core._model_tables import ModelTablesMixin
+from lizyml.core._model_tune_memory import ModelTuneMemoryMixin
 from lizyml.core._model_tuning import ModelTuningMixin
 from lizyml.core._resource_warning import check_resources
+from lizyml.core._tune_planning import TunePlanningMixin
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import generate_run_id, get_logger
 from lizyml.core.specs.feature_spec import FeatureSpec
@@ -124,7 +126,15 @@ _TS_METHODS = frozenset({"time_series", "purged_time_series", "group_time_series
 _BLOCK_METHODS = frozenset({"blocked_group_kfold"})
 
 
-class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTuningMixin):
+class Model(
+    ModelPlotsMixin,
+    ModelTablesMixin,
+    ModelPersistenceMixin,
+    ModelTuningMixin,
+    ModelMemoryMixin,
+    ModelTuneMemoryMixin,
+    TunePlanningMixin,
+):
     """Public-facing facade for LizyML.
 
     Args:
@@ -262,32 +272,10 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         check_feature_names_for_training(provider, X)  # H-0148, before training
         self._provider = provider
         run_meta = self._build_run_meta(run_id)
-        # H-0094: `params` is forwarded here. It was documented as overriding
-        # `model.params` and reached nothing: `_merge_params`'s `override`
-        # overlay was correct and had no caller, so an override was discarded
-        # in silence and the booster trained on the config value (#264).
-        model_params, smart_params = self._merge_params(
-            provider, override=params, validate_values=True
-        )
-        # Both parameter surfaces are checked here, before any training starts.
-        # `_merge_params` gates `model.params`; the calibration surface is
-        # checked beside it rather than at `_run_calibration`, which runs after
-        # the whole outer CV. A name the calibrator can never honour must not
-        # cost a full training first -- and H-0093 states the check fires
-        # before training, which was false while it lived downstream.
-        check_calibration_param_names(cfg.calibration)
-        training_overrides = (
-            self._tuning_result.best_training_params
-            if self._tuning_result is not None
-            else {}
-        )
-        tc = self._build_train_components(
-            X,
-            y,
-            provider=provider,
-            model_params=model_params,
-            smart_params=smart_params,
-            training_overrides=training_overrides,
+        # H-0094: `params` is forwarded; H-0150: the step is shared with
+        # `estimate_memory`, so fit and its estimate cannot assess differently.
+        smart_params, tc, training_overrides = self._assessment_inputs(
+            provider, X, y, params
         )
         splitter = build_splitter(
             cfg,

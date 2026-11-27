@@ -1801,7 +1801,11 @@ SEAM_TESTS = {
 }
 
 #: The modules that overlay one parameter layer onto another.
-SEAM_MODULES = ("lizyml/core/model.py", "lizyml/core/_model_tuning.py")
+SEAM_MODULES = (
+    "lizyml/core/model.py",
+    "lizyml/core/_model_tuning.py",
+    "lizyml/core/_trial_inputs.py",
+)
 
 
 def _overlay_layers() -> set[str]:

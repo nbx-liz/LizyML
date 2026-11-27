@@ -16,6 +16,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
+from lizyml.core.types.memory_estimate import MemoryEstimate
 from lizyml.core.types.search_dim import CategoricalDim, SearchDim
 from lizyml.core.types.task import TaskType
 from lizyml.estimators.base import BaseEstimatorAdapter
@@ -508,6 +509,61 @@ class ResourceWarningProvider(Protocol):  # pragma: no cover
             smart_params: The fit's smart parameters.
             n_boosters: How many trained models the fit keeps alive at once.
         """
+        ...
+
+
+MemoryRole = Literal["increasing", "choices", "none"]
+
+
+@runtime_checkable
+class MemoryEstimateProvider(Protocol):  # pragma: no cover
+    """Optional provider capability: the extra CPU memory a fit would ask the
+    estimator library for, as a number (H-0150).
+
+    Separate from :class:`EstimatorProvider`, as
+    :class:`ResourceWarningProvider` is. ``Model.estimate_memory`` and
+    ``Model.estimate_tune_memory`` call these only when
+    ``isinstance(provider, MemoryEstimateProvider)``; otherwise they raise
+    ``CONFIG_INVALID`` (``reason: "memory_estimate_unsupported"``). The
+    estimate is of the extra CPU memory, not a bound on the process's RSS.
+    """
+
+    def estimate_memory(
+        self,
+        *,
+        estimator_factory: Callable[[], BaseEstimatorAdapter],
+        X: pd.DataFrame,
+        smart_params: dict[str, Any],
+        n_boosters: int,
+    ) -> MemoryEstimate:
+        """The estimate for the fit *estimator_factory* builds.
+
+        Raises:
+            LizyMLError: ``CONFIG_INVALID`` when the factory's estimator is
+                one this provider cannot estimate.
+        """
+        ...
+
+    def memory_role(self, name: str) -> MemoryRole | None:
+        """How the estimate depends on parameter *name*: ``"increasing"`` (it
+        never decreases as the value grows), ``"choices"`` (unordered), or
+        ``"none"`` (not at all); ``None`` when the provider cannot say."""
+        ...
+
+    def memory_candidates(self, name: str, low: Any, high: Any) -> tuple[Any, ...]:
+        """Extra values the tune envelope evaluates for a numeric dimension
+        *name* over ``[low, high]``, beyond its two ends: a special value of
+        the estimator library (LightGBM's unlimited ``max_depth``) that the
+        ends alone would not reach. Empty for most names."""
+        ...
+
+    def is_device_name(self, name: str) -> bool:
+        """Whether *name* is a spelling of the parameter that picks the device."""
+        ...
+
+    def device_is_cpu(self, params: dict[str, Any]) -> bool:
+        """Whether the finalized *params* train on the CPU (an absent device
+        is the CPU). The one place the device is decided (H-0150 policy 6)."""
         ...
 
 

@@ -25,7 +25,7 @@ import optuna
 import pytest
 
 from lizyml import Model
-from lizyml.core import _model_tuning
+from lizyml.core import _model_tuning, _tune_planning
 from lizyml.core._smart_combinations import (
     FIXED_LAYER,
     check_layers_over_smart_values,
@@ -170,7 +170,8 @@ class _CountingProvider(LGBMProvider):
 
 def _use(monkeypatch: pytest.MonkeyPatch, provider: LGBMProvider) -> None:
     """Hand *provider* to ``Model.tune`` (it resolves it at the call)."""
-    monkeypatch.setattr(_model_tuning, "get_provider", lambda _cfg: provider)
+    for _mod in (_model_tuning, _tune_planning):
+        monkeypatch.setattr(_mod, "get_provider", lambda _cfg: provider)
 
 
 # ---------------------------------------------------------------------------

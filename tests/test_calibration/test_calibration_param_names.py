@@ -165,6 +165,8 @@ TRAINING_ENTRY_POINTS: dict[str, Any] = {
 NON_TRAINING_ENTRY_POINTS: dict[str, str] = {
     "predict": "scores an existing booster",
     "restore_tuning": "reads a study's records and trials; trains nothing",
+    "estimate_memory": "assesses the fit's memory; trains nothing (H-0150)",
+    "estimate_tune_memory": "plans a round and assesses it; trains nothing (H-0150)",
     "evaluate": "filters metrics computed during fit (H-0057)",
     "export": "writes the artifact a fit produced",
     "export_code": "generates source; its params are gated separately",

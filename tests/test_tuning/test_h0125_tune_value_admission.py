@@ -27,7 +27,7 @@ import optuna
 import pytest
 
 from lizyml import Model
-from lizyml.core import _model_tuning
+from lizyml.core import _model_tuning, _tune_planning
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.search_dim import CategoricalDim, SearchDim
 from lizyml.estimators.lgbm import provider
@@ -209,7 +209,8 @@ class _BadFixedProvider(LGBMProvider):
 def test_fixed_layer_value_is_refused_before_any_study(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(_model_tuning, "get_provider", lambda _c: _BadFixedProvider())
+    for _mod in (_model_tuning, _tune_planning):
+        monkeypatch.setattr(_mod, "get_provider", lambda _c: _BadFixedProvider())
     cfg = _config("regression", {"learning_rate": LR}, mode="merge")
     error = _refused_before_any_study(cfg, "regression", tmp_path)
     assert error.context["surface"] == FIXED_LAYER
@@ -347,9 +348,8 @@ class _BadDefaultSpaceProvider(LGBMProvider):
 def test_a_default_space_dimension_is_refused(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(
-        _model_tuning, "get_provider", lambda _c: _BadDefaultSpaceProvider()
-    )
+    for _mod in (_model_tuning, _tune_planning):
+        monkeypatch.setattr(_mod, "get_provider", lambda _c: _BadDefaultSpaceProvider())
     cfg = _config(
         "binary", {"n_estimators": {"type": "int", "low": 3, "high": 5}}, mode="merge"
     )

@@ -120,14 +120,14 @@ class _Overlapping(BaseSplitter):
 
 
 def _overlap(monkeypatch: pytest.MonkeyPatch) -> None:
-    import lizyml.core._model_tuning as model_tuning
+    import lizyml.core._tune_planning as tune_planning
     import lizyml.core.model as model_module
 
     def build(*args: Any, **kwargs: Any) -> BaseSplitter:
         return _Overlapping()
 
     monkeypatch.setattr(model_module, "build_splitter", build)
-    monkeypatch.setattr(model_tuning, "build_splitter", build)
+    monkeypatch.setattr(tune_planning, "build_splitter", build)
 
 
 def test_fit_refuses_overlapping_validation_folds(

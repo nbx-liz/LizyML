@@ -153,6 +153,12 @@ def require_stored_study_args(
 def read_study_lineage(storage: str | BaseStorage, study_name: str) -> StudyLineage:
     """Read a stored study's state and rounds without changing it (§7.6).
 
+    The study, its trials and their attributes are not written. Opening the
+    storage can still change it: Optuna creates an SQLite URL's file when it
+    does not exist and an empty schema in an empty database (H-0122, H-0150).
+    ``Model.estimate_tune_memory`` opens the storage the same way. To leave no
+    file behind, do not call it when the storage file does not exist.
+
     Args:
         storage: An Optuna storage URL or ``BaseStorage``, as for
             ``Model.tune``.
