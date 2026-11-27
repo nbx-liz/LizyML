@@ -249,7 +249,7 @@ def test_fit_with_no_rounds_fails_as_before_in_training() -> None:
     """
     df = _df("regression")
     cfg = _cfg(n_estimators=-1)
-    with pytest.raises(ValueError, match="Number of boosting rounds must be greater"):
+    with pytest.raises(ValueError, match=r"must be greater than 0\. Got -1"):
         Model(cfg).fit(data=df)
     with pytest.raises(LizyMLError) as err:
         Model(cfg).estimate_memory(data=df)
