@@ -239,3 +239,19 @@ def test_the_per_call_transients_are_put_back() -> None:
     model._input_categories = {"keep": ["x"]}
     model.estimate_memory(data=df)
     assert model._input_categories == {"keep": ["x"]}
+
+
+def test_fit_with_no_rounds_fails_as_before_in_training() -> None:
+    """Pinned against ecec3da: LightGBM's own ValueError, raised in training.
+
+    The memory warning path must not refuse it first (H-0150 keeps the
+    unevaluable refusal inside ``estimate_memory`` and the envelope).
+    """
+    df = _df("regression")
+    cfg = _cfg(n_estimators=-1)
+    with pytest.raises(ValueError, match="Number of boosting rounds must be greater"):
+        Model(cfg).fit(data=df)
+    with pytest.raises(LizyMLError) as err:
+        Model(cfg).estimate_memory(data=df)
+    assert err.value.code is ErrorCode.CONFIG_INVALID
+    assert err.value.context["reason"] == "memory_estimate_unevaluable"

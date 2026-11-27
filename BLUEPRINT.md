@@ -155,9 +155,12 @@ eval_result = model.evaluate()
 pred_result = model.predict(X_test, return_shap=True)
 model.export("path/to/export_dir")
 model.export_code("path/to/codegen_dir")  # LizyML 非依存の学習・推論コード生成（H-0059）
+est = model.estimate_memory(data, params)     # MemoryEstimate（学習しない。H-0150）
+tune_est = model.estimate_tune_memory(data)   # TuneMemoryEstimate（次の round の包絡。H-0150）
 ```
 
 補足:
+- **メモリの見積もり（H-0150）**: `Model.estimate_memory(data=None, params=None) -> MemoryEstimate` は、同じ引数の `fit` が学習の前に評価するものと同じ値（`num_leaves`・`cause`・`max_depth`・`estimate_bytes`・`n_boosters`）を返す。学習せず（`lgb.train` も `lgb.Dataset` も呼ばない）、Model の状態を変えない。`Model.estimate_tune_memory(data=None, *, resume, n_trials, expand_boundary, boundary_threshold, storage, study_name, space) -> TuneMemoryEstimate` は、同じ引数の `tune` が次に走らせる round を `tune` と同じ計画の関数で決め、その round の有効な範囲の候補の点の見積もりの最大を `envelope` に返す（`status` は `complete` か `incomplete`、`unresolved`・`waiting_trials`・`round`・`n_candidates`・`failures`）。study・trial・その属性を書かず、Model の状態を変えない（storage の URL を開くと SQLite のファイルと空の schema ができうる）。どちらも、provider が `MemoryEstimateProvider`（§14.4）でなければ `CONFIG_INVALID`（`reason: "memory_estimate_unsupported"`）。型は `lizyml.core.types` から公開する。意味は §5.3。
 - `fit()` の default は、最も評価が良かったパラメーターで学習する。
 - 必要に応じて、最終学習に使うパラメーターを明示指定できるようにする。
 - `tune()` は `TuningResult` を返す。`TuningResult` は `best_model_params` / `best_smart_params` / `best_training_params`（カテゴリ別最良パラメーター）、`best_score`（最良スコア）、`trials`（全 trial の `TrialResult` リスト）、`metric_name`、`direction` を持つ。`best_params` プロパティは3カテゴリの flat view を返す（H-0050）。
@@ -305,6 +308,8 @@ config = {
   - 見積もりは、ヒストグラム（約 16 バイト × 特徴量の bin の合計 × `num_leaves`）1 回分と、同時にメモリに残る booster の数だけの木（約 80 バイト × `num_leaves` × round 数 × class 数）の和。LizyML の adapter は `keep_training_booster=True` で学習するので、学習の済んだ booster も指定の大きさの木を持ち続ける。残る数は `Model.fit` で outer の fold の数 + refit、tune の 1 つの trial で outer の fold の数。近似で、早期終了では上限、isotonic の校正の booster は数えない。
   - 回数: `Model.fit` は全ての fold と refit を合わせて 1 回。`Model.tune` は呼び出しごとに最初に条件に当たった trial で 1 回だけ警告し、以降の trial は logger に記録する。警告を例外にする設定では学習の前に止まる（tune では `TUNING_FAILED` に包まれる）。
   - 判定は provider の任意の capability `ResourceWarningProvider`（§14.4）で、LightGBM の provider だけが持つ（`estimators/lgbm/memory_check.py`）。
+  - **見積もりの公開（H-0150）**: 同じ評価を `Model.estimate_memory`（fit 1 回分）と `Model.estimate_tune_memory`（次の tune の round の包絡）が数として返す（§4.1）。警告の文と見積もりは provider の同じ評価を通るので分かれない。値は **学習が足す CPU のメモリの見積もりであり、process 全体の RSS の上限ではない**（isotonic の校正の booster と process の基礎のメモリを含まない）。式と係数は H-0140 のままで、GPU は対象外。
+  - `complete` の包絡が約束するのは、study がその間に変わらないとき、次の round の有効な範囲から sample される通常の CPU の trial の見積もりを上から抑えることだけで、sampler がどの点を引くかは示さない。WAITING の trial、範囲の外の値、CPU でない device の trial は約束に入らない。**`incomplete` の包絡（評価できた点の最大にすぎない）は上限ではなく、ジョブ全体の開始前の判定を通す根拠にならない。** `complete` の包絡が予算を超えるときは、ジョブを控えめに拒否する根拠になるが、sampler がその点を引くことは示さない。
 - 制約: `auto_num_leaves` が有効なとき、`num_leaves` を別名（`max_leaves` など）を含めてどの層に書いても `fit` / `tune` の学習前に `CONFIG_INVALID`（H-0121。config の構築時には拒否しない）。`num_leaves_ratio` は `auto_num_leaves` が真のときだけ読まれる。
 
 ### データサイズ相対比率パラメーター
