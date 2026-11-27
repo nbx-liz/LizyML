@@ -17930,3 +17930,284 @@ Firing rate: unmeasurable before implementation (the argument does not exist yet
 - **管理者の判断（2026-11-27、#423 issuecomment-7207395926）**: 案 A を限界つきで採る。包絡の `complete` は次の round の有効な範囲から sample される通常の CPU の trial に限り、格子は目的関数と同じにし、WAITING の trial があれば `incomplete`（`waiting_trials`）にする。device は provider の 1 つの関数が正式名で決め、候補の組み立ての前に宣言された層で 1 回、trial ごとに 1 回使う。storage の約束は study・trial・属性を書かないことだけにし、`sqlite3` の確かめをやめて今の探し方を使う（SQLite のファイルと schema を作りうることを書く）。`incomplete` の包絡は開始前の判定を通さないことを書く。拒否の数はこの呼び出しのことだけを表す。改訂を 1 round（この run の最後の round 3）だけレビューし、そこで修正の欠陥が出るか run が尽きたら管理者に戻す。今の tune の欠陥（round をまたぐ WAITING の trial、`max_depth` 1024 の `OverflowError`、受け入れて組み立てで失敗する選択肢）は、確かめてから別の issue にする。3 つとも develop `fc113c9` で再現し、#432・#433・#434 に起票した。
 - **round 3**（`h0150-proposal-review`、`9681e8f`、この run の最後、CHANGES_REQUESTED）: major 3 件、minor 5 件。round 2 の device の 2 件は解消したと確かめた。(1) 端の点の規則は round 数が 1 未満の点で成り立たない（固定値の `n_estimators=-1`）→ 確定した round 数か葉の数が 1 未満の点は評価できない点にした。(2) 数値の device の次元には選択肢が無い → CPU でない値として扱う。(3) WAITING の trial に GPU を入れる受け入れは trial ごとの守りを通らない → 確定したパラメーターに差し込む試験用の経路にした。(4) 走る trial の無い round の device の扱い → 見積もりは計画の直後に返し、予算つきの tune は今と同じに閉じる。(5) 拒否の数が示す範囲 → 互換性の文を直した。(6) 見積もりの例外の診断 → `reason` を 3 つに分け、`memory_refused_this_call` に数えることにした。(7) 受け入れの入力が今の検査を通らない → `auto_num_leaves: false` と `histogram_pool_size` にした。(3)(6) は round 2 の修正から出た指摘で、run も尽きたので管理者に戻した。
 - **管理者の判断（2026-11-27、#423 issuecomment-7207668166）**: 8 件を本文で直し、loop 監視（relational）の後に 1 round の確認（delta check）を行う。APPROVE と CI 緑で HISTORY の PR を merge し、CHANGES_REQUESTED なら再び管理者に戻す。
+
+## H-0131: 2 つの registry を宣言的な schema にして helper の中に閉じ、BLUEPRINT §2.1 の 4 つの懸念のうち 3・4 をテストで守る（#366）
+
+- **ステータス**: Proposed
+- **起票日**: 2026-11-27
+- **関連**: H-0130（改訂 2 が 4 つの懸念をレビューだけで守るとし、この ID を予約した）、H-0129（層の検査 R0〜R5）、H-0100（校正の params の事前検査）、#366
+- **スコープ**:
+  - `lizyml/core/registries.py`、`lizyml/metrics/registry.py`、`lizyml/calibration/registry.py`、実装のモジュールの登録の decorator（`metrics/classification.py`・`metrics/regression.py`・`calibration/{beta,isotonic,platt}.py`）、Facade の校正の事前検査（`core/_model_factories.py` の `check_calibration_param_names`）、テスト、BLUEPRINT §2.1 と木、ARCHITECTURE.md、PR のテンプレート、CHANGELOG、`docs/proposal_dispositions.toml`
+  - 範囲の外: 組み立てと具象型ディスパッチの検査（懸念 1・2 はレビューに残す）、O4（import の持ち主）と 1-C（IF の `__all__`）、新しい registry、実装のクラスとモジュールの移動、保存の形式、公開の具象クラス
+
+Gate-category: shared-state-invariant
+
+### 目的（課題）
+
+H-0130 改訂 2 は BLUEPRINT §2.1 に、具象の組み立てと具象型ディスパッチは Facade が行うという規則を書き、次の 4 つを「H-0131 の実装と architecture のテストが merge されるまで」レビューだけで守るとした（BLUEPRINT §2.1、PR のテンプレート）。
+
+1. 組み立て（Config の型、discriminator の `name`、それから導いた値での選択を含む）
+2. 具象型ディスパッチ
+3. registry の helper を迂回して registry から引くこと
+4. 登録の書き換え
+
+今の registry は `core/registries.py` の `_Registry` の 2 つの instance（`MetricRegistry`・`CalibratorRegistry`）で、どの層からも import でき、`get`・`keys`・`in`・`register`・`_store` を持つ。`register` は同じ key の登録を黙って上書きする。そのため 3 と 4 は、書き方を列挙する検査（改訂 1 の R6）では閉じなかった。この Proposal は #366 の 10 の項目を決め、3 と 4 を作りで閉じてテストで守り、1 と 2 はレビューに残すことを境界つきで書く。
+
+### 管理者の判断
+
+1. **先に Codex の批評**（2026-11-27、#366 issuecomment-7208403717）: Proposal を書く前に、O4・O5・1-C を #366 の 10 の項目に照らして 1 round の批評で分析させ、その後で方針を 1 つの問いで決める。
+2. **方針**（2026-11-27、#366 issuecomment-7208665294）:
+   - O5 だけを採る。懸念 3・4 を 2 つの registry（指標、校正）についてテストで守り、懸念 1・2 は境界を書いてレビューに残す。O4 と 1-C は採らない。
+   - `MetricRegistry` と `CalibratorRegistry` は消し、壊れることを CHANGELOG と BLUEPRINT に書く。公開の `get_metric`・`get_metrics_for_task`・`get_calibrator` と公開の具象クラスは変えず、保存されるクラスの定義の場所も変えない。
+   - 登録は宣言的な schema にする。組み込みの実装を、カテゴリ・key・クラスの文字列の表から起動時に 1 回検査して封じる。外から届く書き手、生の引き手、クラスの表、変えられる registry の instance を残さない。
+
+### 実測（2026-11-27、develop `4b3ca6a`、Python 3.12.3）
+
+スクリプトと出力は `docs/audits/2026-11-i366/` に置く。
+
+- **Codex の批評**（`i366-options-critique`、`options-critique.json`、prompt は `options-critique.prompt.md`）: 懸念 1 と 2 は閉じない。
+  - `cfg.name` で渡された 2 つの factory のどちらかを選ぶ分岐を `training/cv_trainer.py` に足しても、`type(x).__name__ == 'CalibrationResult'` で分ける分岐を足しても、今の R0〜R5 は通した（メモリの中で書き換えて確かめた）。
+  - 名前、クラスの形、型をキーにした表、文字列、導いた値、手元の object は閉じた文法にならず、列挙すれば R6 に戻る。
+  - O4 と 1-C は、再公開（多段、別名、`*`、モジュールの属性）、IF ごとの `__all__`、provider の一覧の鮮度にそれぞれ閉じた文法が要り、それでも懸念 1・2 はレビューに残る。
+  - O5 は 2 つの registry について懸念 3・4 を作りで閉じる。推奨は宣言的な O5 だけ。
+- **登録の表**（`registry_census.py` → `.out`）:
+  - 指標が 17 行（`metrics/classification.py` が 8、`metrics/regression.py` が 9）、校正が 3 行（`calibration/{beta,isotonic,platt}.py`）。
+  - どの行も、次を満たす。
+    - key は source の decorator でちょうど 1 回登録される。
+    - クラスは自分のカテゴリのパッケージで定義され、そのモジュールは helper が `import` の文で静的に読む。
+    - クラスは `module.qualname` で届く（別名でない）。
+    - クラスはカテゴリの境界 IF の subclass である。
+  - census は、拒否する行が 1 つでもあれば 0 でない終了コードで終わる。
+  - `metrics/registry.py` の `_TASK_METRICS` が挙げる key の集合は、登録された 17 の key と等しい。
+- **registry の名前を使う所**（同じ出力）: `lizyml/` の 9 ファイル（実装の 5、helper の 2、`core/registries.py`、Facade の `_model_factories.py:1262-1265`）と `tests/` の 3 ファイル（`test_metrics/test_metric_requires_proba.py`、`test_calibration/test_calibration_param_names.py`、`test_core/test_calibration_params_reach.py`）。LizyStudio（`~/repos/LizyStudio` `9662ac9`）の Python には 1 つも無い。
+- **helper から作れる**（`helper_reach.py` → `.out`）:
+  - 17 の指標の key は全て、引数なしの `get_metric(key)` で作れる。その key を挙げる task の `get_metrics_for_task([key], task)` も、23 の key と task の組の全てで通る。3 の校正の key は全て、params なしの `get_calibrator(key)` で作れる。
+  - `get_metrics_for_task` は各 entry を作ってから task を確かめる。`[{"precision_at_k": {"k": 0}}]` を regression で渡すと、task の誤りより先に `CONFIG_INVALID`（`k must be in [1, 100], got 0`）になる。
+  - 知らない指標の名前の文は、`Available:` に登録の順（`logloss` から `mase` まで）で key を並べる。この順を確かめるテストは無い（`grep`）。
+  - Facade の校正の事前検査は、登録されていない method と空でない params で、生の `KeyError` を出す。校正の欄が実際に検証される入力（dict や YAML の中の校正の欄が dict の場合）では、`calibration.method` が `Literal["platt", "isotonic", "beta"]` に限られるので（`config/schema.py:619`）、この道に届かない。検証されない校正の Config が届く道（対応方針 5）は別である。
+
+Firing rate: 20/20 of the registry rows shipped at develop 4b3ca6a are admitted by the proposed bootstrap validation (registry_census.py replaying all five row checks on the live registries, the source decorator counts and the helpers' static imports; it exits nonzero on any refusal); the refusal branch is exercised only by the negative controls of acceptance 2
+
+| Conjunct | Env-dependent | Evidence | Machines | Bad input |
+|---|---|---|---|---|
+| 1. key が schema で 1 回だけ現れる | no | in headline | — | — |
+| 2. 行のモジュールが、そのカテゴリのパッケージの中で、helper が静的に import したものである | no | in headline | — | — |
+| 3. `module.qualname` が届き、そのクラスの `__module__`・`__qualname__` が行と等しい | no | in headline | — | — |
+| 4. クラスがカテゴリの境界 IF の subclass である | no | in headline | — | — |
+| 5. 指標だけ: `_TASK_METRICS` の key の集合が schema の key の集合と等しい | no | in headline | — | — |
+
+### 対応方針（提案）
+
+1. **schema**:
+   - `metrics/registry.py` と `calibration/registry.py` は、それぞれモジュールの変数 `_SCHEMA` に、行 `(key, モジュール名, クラスの qualname)` の文字列の tuple の tuple を、式でなく literal で書く。
+   - 行の順は今の登録の順（指標は `logloss` から `mase`、校正は `beta`・`isotonic`・`platt`）とし、知らない名前の文の `Available:` の並びを変えない。
+   - schema にはクラスの object を置かない（文字列だけ）。
+2. **起動時の検査**（`core/registries.py`、Layer 0 のまま）:
+   - `_Registry`・`MetricRegistry`・`CalibratorRegistry` を消し、関数 `check_schema(category, schema, *, modules, base) -> None` だけを置く。`modules` は helper が静的に import した実装のモジュールの object の tuple である。R5 が `lizyml` の動的な import を許さないので、文字列から import しない。
+   - `check_schema` は各行を検査し、どれか 1 つでも外れれば、その行と理由を書いた `RuntimeError` を出す（helper の import の時に失敗する）。検査は Firing rate の表の 1〜4 で、`modules` に無いモジュール名と、届かない qualname を含む。
+   - `check_schema` は何も返さない。クラスも、クラスの表も、引き手も返さない。だから、出荷する `_SCHEMA` と実装のモジュールを外から渡しても、得られるのは検査の成否だけである。
+3. **helper**:
+   - 各 helper のモジュールは、関数 `_build()` の中で次を行う。
+     1. 実装のモジュールを静的に import する。
+     2. `check_schema` を呼ぶ。
+     3. 行を `getattr(モジュール, qualname)` で解決して、関数の中の変えられない対応（`types.MappingProxyType`）にする。
+     4. それを閉じ込めた公開の関数を作って返す。
+   - モジュールの名前空間には、解決した表も、引き手も、実装のモジュールも残さない。
+   - 変えられる表をモジュールに残さない。
+     - 指標の `_TASK_METRICS` は、`MappingProxyType` の中に frozenset を入れたものにする。起動時に、key の集合の和が schema の key と等しいことも確かめる（Firing rate の表の 5。違えば `RuntimeError`）。
+     - 校正の `_NOT_IMPLEMENTED`（今は空）は `_build()` の中の `MappingProxyType` にする。起動時に、その key が schema の key と重ならないことを確かめる（重なれば `RuntimeError`）。
+   - 公開の関数と、その返り値の形:
+     - `metrics/registry.py`:
+       - `get_metric` は `BaseMetric` の instance を返す。今のまま。
+       - `get_metrics_for_task` は `BaseMetric` の instance の list を返す。今のまま。各 entry は作ってから task を確かめるので、不正な引数は task が合わなくても `CONFIG_INVALID` になる（実測）。この順も変えない。
+       - `parse_metric_entry` は `(名前, 呼んだ側の kwargs)` を返し、`parse_metric_entries` はその list を返す。どちらも今のまま。
+       - 新しい `metric_names()` は、schema の順の `tuple[str, ...]` を返す。
+     - `calibration/registry.py`:
+       - `get_calibrator` は `BaseCalibratorAdapter` の instance を返す。今のまま。
+       - 新しい `calibrator_names()` は、schema の順の `tuple[str, ...]` を返す。
+       - 新しい `validate_calibrator_params(name, params)` は `None` を返す。クラスの `validate_params` を、instance を作らずに呼ぶ。知らない名前と `_NOT_IMPLEMENTED` の名前では、`get_calibrator` と同じ `CALIBRATION_NOT_SUPPORTED` を出す。
+     - どの関数もクラスを返さない。
+   - 届く範囲は今の §2.1 の表のまま変えない。
+     - `metrics/registry.py` は Layer 1 の IF なので、`metric_names` は Layer 2・3 からも呼べる。
+     - `calibration/registry.py` は IF の列に無い。新しい 2 つの関数は、`calibration/` の中と Facade（とテスト）だけが呼ぶ。
+     - 新しい 3 つの関数はパッケージ（`lizyml.metrics`、`lizyml.calibration`）から再公開しない。
+4. **実装のモジュール**: 登録の decorator（`@MetricRegistry.register(...)`・`@CalibratorRegistry.register(...)`）と `core.registries` の import を消す。クラス、名前、定義のモジュールは変えない。
+5. **Facade**: `check_calibration_param_names` の `CalibratorRegistry.get(method).validate_params(normalised)` を `validate_calibrator_params(method, normalised)` にする。
+   - normalise の順、params の無いときに返る道、LightGBM を使う校正（`LGBM_BACKED_CALIBRATORS`）の道は変えない。
+   - 登録されていない method は、今の生の `KeyError` から `CALIBRATION_NOT_SUPPORTED` に変わる。校正の欄が実際に検証される入力では、`calibration.method` が `Literal` で 3 つに限られるので、この道には届かない。校正の欄が検証されない入力では届く。それは次の 2 つである。
+     - 作り済みの `LizyMLConfig`（`model_construct`、代入、`model_copy(update=...)` で作ったものを含む）。`Model` はこれを版だけ確かめて受け取り（`core/model.py:144`）、そのまま事前検査に渡す（`core/model.py:278`）。
+     - Python の dict の校正の欄に置いた、作り済みの `CalibrationConfig` の instance（例: `CalibrationConfig.model_construct(...)`、`CalibrationConfig().model_copy(update=...)`）。loader はそれを複写して `LizyMLConfig.model_validate` に渡す（`config/loader.py:150`、`:282`）。pydantic の既定（`revalidate_instances="never"`）は入れ子の instance を検証し直さないので、知らない method が残る。
+   - この変化を CHANGELOG に書く。
+6. **テストの移し替え**: 登録の全てを回すテストは、回す数を減らさずに公開の操作へ移す。
+   - `test_metric_requires_proba.py` は `metric_names()` を回す。
+   - `test_calibration_param_names.py` と `test_calibration_params_reach.py` は `calibrator_names()` を回し、クラスは `type(get_calibrator(name))` から得る（3 つとも params なしで作れる、実測）。テストは `lizyml` の外なので、この規則に縛られない。
+7. **BLUEPRINT と文書**:
+   - §2.1 の `core/registries.py` の文を書き換える。新しい文は「`check_schema` で schema を検査する仕組み。registry の表は helper の中に閉じ、外から引く手も書く手も無い」である。
+   - 「この規則は規範だが、テストでは確かめない…H-0131 の実装…まで」の文を書き換える。
+     - 懸念 1・2 は**期限なしで**レビューで守る（境界は下の 8）。
+     - 懸念 3・4 は、2 つの registry についてテスト（受け入れ 1〜5）で守り、その境界を書く。
+   - PR のテンプレートの確認項目は、1・2 と、新しい registry や registry の役割の変更（Proposal が要る）だけにする。
+   - §2.1 の表は変えない（`core/registries.py` は Layer 0 に残り、IF の列も変えない）。
+   - 次の場所の記述も書き換える。
+     - BLUEPRINT の `MetricRegistry` の記述（`BLUEPRINT.md:1736`）と木（`:2235`・`:2308`）。
+     - ARCHITECTURE.md（`:341-346` の `MetricRegistry` の図、`:690`、`:745`）。
+     - README.md の層の規則の段落（`README.md:134`。「Tests check only import edges」、4 つの懸念の H-0131 までの期限、実装のモジュールが自分の型を登録すること）。
+     - `metrics/__init__.py` の docstring と、`estimators/lgbm/metric_bridge.py:113` のコメント。
+   - CHANGELOG の Removed に 2 つの symbol を書き、Changed に上の 5 の `CALIBRATION_NOT_SUPPORTED` を書く。
+8. **境界**（テストが守る範囲と、その外の範囲。§2.1 にも書く）:
+   - **テストが守る範囲**: 懸念 3・4 は、出荷する 2 つの registry と、それらに関わる 5 つのモジュール（`core.registries`、2 つの helper、パッケージの `lizyml.metrics`・`lizyml.calibration`）と、helper の関数の普通の名前空間と返り値について守る。
+   - **範囲の外**:
+     - closure の cell や関数の `__globals__` を取り出すこと、モジュールを monkey-patch すること。
+     - 手元の instance からクラスを得ること（`type(get_metric("rmse"))`）。
+     - 既にある名前の下に、ラッパー（`functools.partial`、callable な object など）で引き手を隠すこと。受け入れ 3 は名前の集合と関数の属性を確かめ、値の中身は確かめない。
+     - 実装のモジュールから具象クラスを直接 import すること（懸念 1 として、レビューで見る）。
+     - 公開の具象クラスから別のクラスの表を自分で作ること（新しい registry で、懸念 1 としてレビューで見る）。
+   - **懸念 1・2 でレビューに残す書き方**:
+     - 名前と値での選択（`cfg.name`、discriminator、クラスの名前の文字列、渡された factory の選び分け）。
+     - `type(obj)(...)`、計算した `getattr`、`eval`・`exec`、渡された object への reflection、実行時の monkey-patch。
+     - `codegen/generator.py:167` の `platt`・`beta` は、生成する文書の依存を名前で選ぶだけで、境界 IF の実装を選んでつなぐことではない。§2.1 の定義では組み立てに入らない（H-0130 の分類、Codex の批評）。
+
+### #366 の 10 の項目への答え
+
+| 項目 | 答え |
+|---|---|
+| 1. 役割の表 | registry の役割だけを決める。実装のモジュールは登録しない（schema が登録する）。helper だけが schema を解決し、instance と名前と検査の結果を返す。Facade は helper を呼ぶ。そのほかの役割の表（O4）は採らない |
+| 2. 部品の範囲 | 2 つの registry の行（指標 17、校正 3）。構造的な Protocol の実装（`LGBMProvider`）と具象の結果型は registry に入らないので、この Proposal の範囲の外（懸念 1・2 としてレビュー） |
+| 3. 鮮度 | schema の行は起動時に全て検査され、`_TASK_METRICS` との食い違いも起動時に失敗する。schema に無いクラスは名前で届かないだけで、違反ではない |
+| 4. 再公開 | registry の handle も引き手も無いので、再公開で届くものが無い（受け入れ 3 がパッケージも含めて確かめる）。1-C は採らない |
+| 5. 動的な import と reflection | R5 のまま。上の 8 の境界の外 |
+| 6. 中と利用者 | 規則は `lizyml` の中だけ。利用者は公開の具象クラスを今までどおり作れる |
+| 7. 外の provider | registry に関わらない。今の §2.2 のまま（レビュー） |
+| 8. registry | O5 を採る。2 つの symbol は消して壊れることを書く（shim を置かない） |
+| 9. 名前と値での選択 | 懸念 1 としてレビューに残す（上の 8） |
+| 10. 終わりの条件 | この実装と受け入れ 1〜5 のテストが merge された時に、H-0130 改訂 2 のレビューだけの期間が終わる。そのとき 3・4 はテスト、1・2 は期限なしでレビュー |
+
+### 互換性
+
+- **壊れる**: `from lizyml.core.registries import MetricRegistry`（`CalibratorRegistry`、`_Registry`）は `ImportError` になる。利用者が失うのは次のことである。
+  - `MetricRegistry.register("名前")` で自分の指標を足して `get_metric("名前")` で作ること。同じく `CalibratorRegistry.register` で足して `get_calibrator` で作ること。
+  - **組み込みの key の上書き**: 今の `register` は同じ key を黙って置き換える（`core/registries.py:19`）。`rmse` を置き換えれば regression の task の表を通り、`platt` を置き換えれば Config の `Literal` を通る。そのため Config からの fit も、置き換えたクラスで動いていた。H-0131 の後は置き換えられない。
+  - 生の `.get`・`.keys()`・`in`・`._store`。
+  - 新しい名前を足した指標は今も `get_metrics_for_task` を通らず（`_TASK_METRICS` に無い名前は `UNSUPPORTED_METRIC`）、新しい名前の校正は Config の `Literal` が通さない。
+  - どちらの symbol も `lizyml` と `lizyml.core` から再公開されず、利用者の手引きも使っていない。LizyStudio も使っていない（実測）。CHANGELOG と BLUEPRINT に書く。
+- **変わらない**:
+  - `get_metric`・`get_metrics_for_task`・`get_calibrator` の引数、返り値、例外の code と文（`Available:` の並びと、作ってから task を確かめる順を含む）。
+  - 公開の具象クラスと、その import の道。
+  - 保存の形式と、保存されるクラス（adapter、`CalibrationResult` の `c_final` の校正器）の定義の場所。
+  - 既存の artifact の読み込み。登録は pickle に入らない。
+- **Facade の 1 つの道**: 登録されていない method の校正の事前検査は、生の `KeyError` から `CALIBRATION_NOT_SUPPORTED` になる（上の 5）。校正の欄が検証されない入力（作り済みの `LizyMLConfig`、dict の中の作り済みの `CalibrationConfig` の instance。例: `model_construct`、`model_copy(update=...)`）で届く。
+
+### 代替案
+
+- **O5 と O4、さらに 1-C**: 懸念 1・2 の一部（import で得ること）を検査にできるが、再公開・IF の `__all__`・provider の一覧の鮮度にそれぞれ閉じた文法が要り、懸念 1・2 は結局レビューに残る（Codex の批評）。管理者が退けた。
+- **#366 をレビューだけで閉じる**: コードの変更は無いが、懸念 3・4 も期限なしでレビューに残る。管理者が退けた。
+- **非推奨の shim を置く**: import は残せるが、クラスを返すか書かせる shim は懸念 3・4 を開けたままにする。管理者が退けた。
+- **decorator を残して書き込みを絞る**（自分のクラスと key だけ、上書きの拒否、起動で終わる）: 差分は小さいが、書き手の規則が検査の対象として残る。管理者が退けた。
+- **検査の関数が引き手を返す**（round 1 の案）: 出荷する `_SCHEMA` と実装のモジュールを渡せば、誰でも生のクラスを引ける（Codex の round 1）。検査は何も返さず、表は helper の中で作る。
+- **引き手をモジュールの変数（下線つき）に置く**: 属性で届くので、懸念 3 が閉じない（Codex の批評）。
+
+### 受け入れ基準（テスト観点）
+
+それぞれの項目は、それが落ちることを示す負の対照と組にする。負の対照は、テストの中で一時的に実装を壊し（monkeypatch か、壊したコピーを読み込む）、テストが落ちることを確かめる。
+
+1. **古い handle が無い**:
+   - `lizyml.core.registries`・`lizyml.metrics`・`lizyml.metrics.registry`・`lizyml.calibration`・`lizyml.calibration.registry` のどれにも、`MetricRegistry`・`CalibratorRegistry`・`_Registry` が無い。
+   - 負の対照: 名前を 1 つ戻すと落ちる。
+2. **schema と起動時の検査**:
+   - 2 つの helper の `_SCHEMA` は literal の文字列の tuple の tuple で（AST で確かめる）、実測の 17 行と 3 行を今の順に持つ。負の対照: 2 行を入れ替えるか、行を式で作ると落ちる。
+   - `check_schema` は、次の 6 つの場合のそれぞれで、その行を文に含む `RuntimeError` を出す: key の重複、`modules` に無いモジュール、カテゴリのパッケージの外のモジュール、届かない qualname、別名（`__module__` か `__qualname__` が行と違う）、境界 IF の subclass でないクラス。正しい schema では `None` を返す。負の対照: どれか 1 つの検査を外すと、対応するテストが落ちる。
+   - 起動時の helper の検査: `_TASK_METRICS` と schema の key が違うと指標の helper が、`_NOT_IMPLEMENTED` と schema の key が重なると校正の helper が、`RuntimeError` になる。負の対照: その検査を外すと落ちる。
+3. **引き手が届かない**（名前の集合で確かめる）:
+   - 新しい process で `lizyml` と 5 つのモジュール（`core.registries`、2 つの helper、`lizyml.metrics`、`lizyml.calibration`）を import した後、各モジュールの dunder でない属性の名前の集合が、テストに書いた literal の集合と等しい。パッケージの集合は、今の公開の名前と、読み込まれた submodule の名前を含む。
+   - helper の公開の関数と `_build` は、関数の属性を持たない（`__dict__` が空）。
+   - `check_schema` は、正しい schema で `None` を返す。
+   - 負の対照:
+     - helper かパッケージに、新しい名前で引き手かクラスの表を足すと落ちる。
+     - helper の関数に属性（例えば `get_metric.lookup`）を足すと落ちる。
+     - `check_schema` が表を返すようにすると落ちる。
+   - 既にある名前の下に、ラッパー（`functools.partial` など）で引き手を隠すことは、この検査の外である（下の 8）。
+4. **返り値の形**:
+   - `get_metric` は `BaseMetric` の instance を返し、`get_metrics_for_task` は `BaseMetric` の instance だけの list を返す。`get_calibrator` は `BaseCalibratorAdapter` の instance、`validate_calibrator_params` は `None` を返す。`metric_names`・`calibrator_names` は `str` だけの tuple を返す。これらの返り値は、schema のクラスそのものを含まない。
+   - `parse_metric_entry` は、名前だけの entry では `(str, 新しい空の dict)` を返す。dict の entry では `(str, 呼んだ側が渡した kwargs の dict そのもの)` を返す（同じ object）。`parse_metric_entries` はその list を返し、名前と dict が混ざった list でもそれぞれ同じ規則に従う。kwargs の中身は呼んだ側のものなので、この項目の禁止の対象にしない。テストは、dict の entry で同じ object であること、名前だけの entry で空の dict であることを確かめる。
+   - 負の対照: `get_metric` などがクラスを返すようにすると落ちる。
+5. **書き換えられない**（2 つの registry のそれぞれで）:
+   - 封じた後に `_SCHEMA` を別の tuple に差し替えても、`metric_names()`・`get_metric`、`calibrator_names()`・`get_calibrator` の結果は変わらない。
+   - 次の型を確かめる。テストが closure を調べて確かめる（テストは `lizyml` の外なので、境界の外の操作を使ってよい）。
+     - helper の関数が閉じ込めた表は `MappingProxyType` である。
+     - 校正の helper が閉じ込めた `_NOT_IMPLEMENTED` も `MappingProxyType` である。
+     - `_TASK_METRICS` は `MappingProxyType` で、その値は全て `frozenset` である。
+   - `_NOT_IMPLEMENTED` はモジュールの名前空間に無い。
+   - 負の対照:
+     - helper が `_SCHEMA` を呼ぶたびに読むようにすると落ちる。
+     - 閉じ込める表か `_NOT_IMPLEMENTED` を普通の `dict` にすると落ちる。
+     - `_TASK_METRICS` を `dict` に戻すか、その値の 1 つを `set` にすると落ちる。
+6. **振る舞いは変わらない**:
+   - 全ての key が helper で作れ、型が schema の行のクラスと等しい。指標は引数なし（`precision_at_k` は `k` も渡す）、校正は params なしで作る。実測の 23 の key と task の組の全てで `get_metrics_for_task([key], task)` が通る。
+   - 知らない名前の文は、今の文と文字列として等しい（`Available:` の並びを含む）。
+   - 誤りの順: 指標の不正な引数は `CONFIG_INVALID`、task に合わない指標は `UNSUPPORTED_METRIC` を出す。両方に当たる `get_metrics_for_task([{"precision_at_k": {"k": 0}}], "regression")` は `CONFIG_INVALID` である。
+   - `metric_names()`・`calibrator_names()` は schema の順を返す。
+   - Facade の道:
+     - 校正の params の事前検査（H-0100）のテストがそのまま通る。
+     - `platt` の知らない params は、今と同じ `CONFIG_INVALID` で、同じ文になる。
+     - `model_construct` で method を `"nope"`、params を空でない dict にした校正の Config を持つ、作り済みの `LizyMLConfig` で binary の fit を呼ぶ。学習の前の事前検査で `CALIBRATION_NOT_SUPPORTED` になり、LightGBM の学習は呼ばれない（spy）。
+   - import の時の起動: 新しい process で、`lizyml` のどのモジュールも import する前に `sys.setprofile` で呼び出しを数える仕掛けを入れ（`lizyml/core/registries.py` の `check_schema` の code object の呼び出しを数える。`lizyml` を import しなくても入れられる）、それから`lizyml`、`lizyml.metrics.regression`、`lizyml.metrics.registry`、`lizyml.calibration.platt`、`lizyml.calibration.registry` のどれか 1 つを最初に import する（5 通り）。helper の関数を 1 つも呼ぶ前に、読み込まれた helper ごとに `check_schema` が 1 回呼ばれている。その後、`metric_names()` は 17、`calibrator_names()` は 3 を返す。
+   - 負の対照:
+     - task の検査を作る前に移すと、誤りの順のテストが落ちる。
+     - `Available:` を並べ替えると落ちる。
+     - helper の `_build` を遅らせて、最初の呼び出しで初めて作るようにすると、import の時の起動のテストが落ちる。
+7. **移したテストは数を減らさない**:
+   - `metric_names()` の 17 と `calibrator_names()` の 3 を回し、移す前と同じものを確かめる（`needs_proba` の指標の集合、`validate_params` の宣言、生成する fitter の集合、LightGBM を import する校正の集合）。
+   - 回した名前の集合が、AST で読んだ `_SCHEMA` の key の集合と等しいことも確かめる。
+   - 負の対照: 回す名前から 1 つ抜くと落ちる。
+8. **保存と読み込み**:
+   - 既存の pickle の fixture のテストがそのまま通る。`tests/test_architecture/test_h0130_contracts.py` の古い校正の pickle と、`tests/test_calibration/test_i298_pr3c_evidence.py` の古い Platt の artifact の予測である。
+   - 負の対照: 定義のモジュールを隠して読み込むと落ちる。
+9. **層の検査**: R0〜R5（`tests/test_architecture/test_layer_rules.py`）がそのまま通り、`core/registries.py` は Layer 0 のまま。規則ごとの負の対照は今のテストにある。
+10. **文書**:
+    - BLUEPRINT §2.1（懸念 1・2 は期限なしでレビュー、3・4 の境界、`core/registries.py` の文）、`BLUEPRINT.md:1736` と木、ARCHITECTURE.md、PR のテンプレート、CHANGELOG（Removed と Changed）、`docs/proposal_dispositions.toml` の行（specified、anchors）。
+    - docs のテストが、BLUEPRINT.md・ARCHITECTURE.md・README.md・`.github/PULL_REQUEST_TEMPLATE.md` で、`MetricRegistry`・`CalibratorRegistry` が H-0131 で消えたことを述べる行のほかに現れないことと、「H-0131 の実装…まで」の期限の文が無いことを確かめる。
+    - 負の対照: 古い文を 1 行戻すと落ちる。
+
+### レビューの停止基準
+
+受け入れ基準と、互換性に書いた主張が正しいかを見る。次のものは、次の round に進む理由にならない。
+
+- 懸念 1・2 の新しい書き方（レビューに残すと決めた）。
+- 上の 8 の境界の外の操作（closure の cell、関数の `__globals__`、monkey-patch、instance からクラスを得ること、既にある名前の下のラッパー、実装のモジュールからの直接の import、公開の具象クラスから作る別の表、`eval`・`exec`、計算した `getattr`）の、別の書き方。
+- O4 と 1-C、構造的な provider の発見。
+- 新しい registry を作ることの是非（Proposal が要るとだけ書く）。
+
+### Proposal レビュー
+
+- **round 1**（`h0131-proposal-review`、`e0c3f7a`、CHANGES_REQUESTED）: major 6 件、minor 3 件。
+  - (1) `seal_registry` が引き手を返すので、出荷する `_SCHEMA` と実装のモジュールを渡せば誰でも生のクラスを引ける。検査の関数 `check_schema` は何も返さず、表は helper の `_build` の中で作ることにした。
+  - (2) パッケージの別名と module の `__getattr__` を確かめず、返り値の形も決めていない。受け入れ 3 をパッケージを含む 5 つのモジュールの値の検査にし、受け入れ 4 に返り値の形を書いた。
+  - (3) 封印のテストが指標だけで、`dict` と `MappingProxyType` を区別しない。`_NOT_IMPLEMENTED` も変えられる。2 つの registry で確かめ、表の型の負の対照を足した。`_TASK_METRICS` と `_NOT_IMPLEMENTED` を変えられない形にした。
+  - (4) `calibration/registry.py` は IF の列に無い。届く範囲を今の表のまま書いた。
+  - (5) 組み込みの key の上書きと、作り済みの `LizyMLConfig` の道を互換性に書いていない。書いた。
+  - (6) 誤りの順、23 の組、文の一致、Facade の道、import の順、各項目の負の対照が無い。足した。
+  - (7) census が静的な import を確かめず、拒否があっても 0 で終わる。直した。
+  - (8) `codegen/generator.py:167` は組み立てに入らず、項目 4 は受け入れ 3 を指し、`BLUEPRINT.md:1736` が漏れている。直した。
+  - (9) 環境の制約（実行できなかったもの）。
+- **round 2**（`h0131-proposal-review`、`6c72b6a`、CHANGES_REQUESTED）: major 6 件、minor 2 件。major の 6 件は round 1 で足した受け入れの欠陥で、停止ルールで管理者に戻した。
+  - (1)(2) 受け入れ 3 の値を調べる規則は、公開の `BaseMetric`・`BaseCalibratorAdapter`・`CalibrationResult` を拒み、`functools.partial` や関数の属性に隠した引き手を通す。
+  - (3) `parse_metric_entry` は呼んだ側の dict をそのまま返すので、中身にクラスがありうる。
+  - (4) `_TASK_METRICS` の値と、校正の closure の `_NOT_IMPLEMENTED` の型を確かめていない。
+  - (5) import の順のテストは、遅れた起動を見分けられない。
+  - (6) Facade のテストは params が空なので事前検査を通らない。
+  - (7) 参照（受け入れ 1〜4、8 の見出し）が古い。
+  - (8) 環境の制約。
+- **管理者の判断（2026-11-27、#366 issuecomment-7211590774）**: 約束を狭める。
+  - 受け入れ 3 は、5 つのモジュールの名前の集合、helper の関数に属性が無いこと、`check_schema` が `None` を返すことだけにし、既にある名前の下のラッパーは境界の外（レビュー）にした。
+  - 残りの 5 件を直した。返り値の禁止は registry が渡すクラスだけ。`_TASK_METRICS` の値は `frozenset`、`_NOT_IMPLEMENTED` は `MappingProxyType`。起動は import の時に、helper を呼ぶ前に観測する。Facade のテストは空でない params の作り済みの Config で、学習の前の拒否を確かめる。参照も直した。
+  - loop 監視（relational）の後に round 3（この run の最後）を行い、そこで修正の欠陥が出るか run が尽きたら、管理者に戻す。
+- **round 3**（`h0131-proposal-review`、`b0d0db1`、この run の最後、CHANGES_REQUESTED）: major 2 件、minor 3 件。run は尽きた。
+  - (1) 起動の回数を数える仕掛けを `lizyml.core.registries` の import の後に入れると、指標の helper の起動を数え損ねる → `lizyml` を import する前に `sys.setprofile` で入れることにした。
+  - (2) dict の中の `CalibrationConfig.model_construct` の instance も、知らない method のまま事前検査に届く → 互換性の文を、校正の欄が実際に検証される入力に限る書き方にした。
+  - (3) 名前だけの entry の parse の返り値が書かれていない → 2 つの場合を書いた。
+  - (4) `README.md:134` の古い段落が文書の更新と古い文の検査から漏れている → 足した。
+  - (5) 環境の制約。
+  - (1)(2) は round 2 の修正から出た指摘で、run も尽きたので管理者に戻した。
+- **管理者の判断（2026-11-27、#366 issuecomment-7211722175）**: 4 件を本文で直し、loop 監視（relational）の後に 1 round の確認（delta check）を行う。APPROVE と CI 緑で HISTORY の PR を merge し、CHANGES_REQUESTED なら再び管理者に戻す。
+- **delta check**（`h0131-proposal-delta`、loop round 4、`feee6b1`、CHANGES_REQUESTED）: major 1 件。dict の中の校正の Config の instance は `model_construct` だけでなく `model_copy(update=...)` で作ったものも事前検査に届く → 2 か所を「作り済みの `CalibrationConfig` の instance（例: `model_construct`、`model_copy(update=...)`）」にした。
+- **管理者の判断（2026-11-27、#366 issuecomment-7211942787）**: 2 か所の文言を直し、loop 監視（relational）の後にもう 1 round の確認（loop round 5）を行う。APPROVE と CI 緑で merge し、CHANGES_REQUESTED なら再び管理者に戻す。
