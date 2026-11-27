@@ -19,6 +19,7 @@ from lizyml.core.types.search_dim import SearchDim
 from lizyml.core.types.smart_ratio import SMART_RATIO_RANGES
 from lizyml.core.types.task import TaskType
 from lizyml.estimators.base import BaseEstimatorAdapter
+from lizyml.estimators.lgbm import memory_check
 from lizyml.estimators.lgbm.adapter import LGBMAdapter
 from lizyml.estimators.lgbm.category_json import needs_stand_in
 from lizyml.estimators.lgbm.defaults import (
@@ -53,29 +54,6 @@ from lizyml.estimators.provider import (
 from lizyml.features.encoders.categorical_encoder import UnseenPolicy
 from lizyml.features.pipeline_base import BaseFeaturePipeline
 from lizyml.features.pipelines_native import NativeFeaturePipeline
-
-# H-0150: how the memory estimate reads a parameter, by LightGBM's canonical
-# name (or the smart parameter's own). ``increasing``: the estimate never
-# decreases as the value grows (rounds, leaves, bins, depth).  ``none``: the
-# estimate does not read it. A closed set: a name in neither is undecided.
-_MEMORY_INCREASING = frozenset(
-    {"num_iterations", "num_leaves", "max_bin", "max_depth", "num_leaves_ratio"}
-)
-_MEMORY_NONE = frozenset(
-    {
-        "learning_rate",
-        "feature_fraction",
-        "bagging_fraction",
-        "bagging_freq",
-        "lambda_l1",
-        "lambda_l2",
-        "min_gain_to_split",
-        "min_data_in_leaf",
-        "min_data_in_leaf_ratio",
-        "early_stopping_round",
-        "validation_ratio",
-    }
-)
 
 # H-0093: the single declaration of which fields are smart parameters.
 # `extract_smart_params` reads the config through it and `smart_param_names`
@@ -528,15 +506,19 @@ class LGBMProvider:
         """How the estimate depends on *name*, under any spelling (H-0150).
 
         ``"increasing"``: the estimate never decreases as the value grows.
-        ``"none"``: the estimate does not read it (a closed set). ``None``:
-        outside the closed set, so the bound cannot be decided.
+        ``"choices"``: unordered, so only every choice bounds it. ``"none"``:
+        the estimate does not read it. ``None``: outside the closed set
+        (``memory_check.memory_role``), so the bound cannot be decided.
         """
-        canonical = LGBM_CANONICAL_NAME.get(name, name)
-        if canonical in _MEMORY_INCREASING:
-            return "increasing"
-        if canonical in _MEMORY_NONE:
-            return "none"
-        return None
+        return memory_check.memory_role(name)
+
+    def memory_candidates(self, name: str, low: Any, high: Any) -> tuple[Any, ...]:
+        """Extra candidates beyond the ends of a numeric range (H-0150).
+
+        LightGBM's unlimited depth: 0 for a ``max_depth`` range reaching 0 or
+        below; nothing for any other name.
+        """
+        return memory_check.memory_candidates(name, low, high)
 
     def is_device_name(self, name: str) -> bool:
         """Whether *name* is a spelling of LightGBM's ``device_type``."""

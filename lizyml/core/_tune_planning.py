@@ -11,7 +11,7 @@ estimate).
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -86,6 +86,10 @@ class TunePlanningMixin:
 
         def _load_data(self, data: pd.DataFrame | None) -> pd.DataFrame: ...
 
+        def _tune_splitter(
+            self, build: Callable[..., BaseSplitter]
+        ) -> BaseSplitter: ...
+
         def _prepare_training_data(
             self, data: pd.DataFrame | None
         ) -> tuple[
@@ -159,12 +163,9 @@ class TunePlanningMixin:
         # H-0148: before the study is read or written and before any trial.
         check_feature_names_for_training(provider, X)
         n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
-        splitter = build_splitter(
-            cfg,
-            block_values=self._block_values,
-            task=cfg.task,
-            seed=cfg.training.seed,
-        )
+        # Built through a hook in `_model_tuning`, so the H-0013 kfold
+        # warning (stacklevel=2) keeps naming that module (H-0150).
+        splitter = self._tune_splitter(build_splitter)
 
         # --- Phase C: locate and judge the study (reads only) -----------------
         target = locate_study(
@@ -199,6 +200,9 @@ class TunePlanningMixin:
                 versions=versions,
                 direction=direction,
                 study_name=shown_name,
+                # This frame sits between `tune` and the check, so the
+                # version warning reaches one frame further (finding 6).
+                stacklevel=5,
             )
         recorded = lineage.study if lineage is not None else None
 

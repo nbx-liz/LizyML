@@ -309,6 +309,7 @@ config = {
   - 回数: `Model.fit` は全ての fold と refit を合わせて 1 回。`Model.tune` は呼び出しごとに最初に条件に当たった trial で 1 回だけ警告し、以降の trial は logger に記録する。警告を例外にする設定では学習の前に止まる（tune では `TUNING_FAILED` に包まれる）。
   - 判定は provider の任意の capability `ResourceWarningProvider`（§14.4）で、LightGBM の provider だけが持つ（`estimators/lgbm/memory_check.py`）。
   - **見積もりの公開（H-0150）**: 同じ評価を `Model.estimate_memory`（fit 1 回分）と `Model.estimate_tune_memory`（次の tune の round の包絡）が数として返す（§4.1）。警告の文と見積もりは provider の同じ評価を通るので分かれない。値は **学習が足す CPU のメモリの見積もりであり、process 全体の RSS の上限ではない**（isotonic の校正の booster と process の基礎のメモリを含まない）。式と係数は H-0140 のままで、GPU は対象外。
+  - 包絡の候補の点: 各次元を provider の `memory_role`（§14.4）で分ける。数値の `"increasing"` は端の 2 点（`step` があれば目的関数と同じ `grid_value`）と provider の `memory_candidates`（`max_depth` の範囲が 0 以下を含めば 0）、数値の `"none"` は下端の 1 点、categorical は役割によらず全ての選択肢。役割が `None`（閉じた集合に無い名前。categorical の `histogram_pool_size` も）の次元は `unresolved` に入る。評価できない点は 1 点ごとに `failures` の 1 つになり、その点で端の値か選択肢を取った次元（`"increasing"` と categorical）を `unresolved` に入れる。provider が見積もれない adapter は失敗の点ではなく `CONFIG_INVALID`（`memory_estimate_unsupported`）。`waiting_trials` は走る trial の無い round でも study の WAITING の数である。
   - `complete` の包絡が約束するのは、study がその間に変わらないとき、次の round の有効な範囲から sample される通常の CPU の trial の見積もりを上から抑えることだけで、sampler がどの点を引くかは示さない。WAITING の trial、範囲の外の値、CPU でない device の trial は約束に入らない。**`incomplete` の包絡（評価できた点の最大にすぎない）は上限ではなく、ジョブ全体の開始前の判定を通す根拠にならない。** `complete` の包絡が予算を超えるときは、ジョブを控えめに拒否する根拠になるが、sampler がその点を引くことは示さない。
 - 制約: `auto_num_leaves` が有効なとき、`num_leaves` を別名（`max_leaves` など）を含めてどの層に書いても `fit` / `tune` の学習前に `CONFIG_INVALID`（H-0121。config の構築時には拒否しない）。`num_leaves_ratio` は `auto_num_leaves` が真のときだけ読まれる。
 
@@ -1857,7 +1858,20 @@ class ResourceWarningProvider(Protocol):  # 任意の機能（H-0140）
 @runtime_checkable
 class FeatureNameRuleProvider(Protocol):  # 任意の機能（H-0148）
     def refused_feature_names(self, names) -> RefusedFeatureName | None: ...
+
+
+@runtime_checkable
+class MemoryEstimateProvider(Protocol):  # 任意の機能（H-0150）
+    def estimate_memory(
+        self, *, estimator_factory, X, smart_params, n_boosters
+    ) -> MemoryEstimate: ...
+    def memory_role(self, name: str) -> Literal["increasing", "choices", "none"] | None: ...
+    def memory_candidates(self, name: str, low, high) -> tuple[Any, ...]: ...
+    def is_device_name(self, name: str) -> bool: ...
+    def device_is_cpu(self, params: dict[str, Any]) -> bool: ...
 ```
+
+`MemoryEstimateProvider` も任意の機能である（H-0150）。`Model.estimate_memory` と `Model.estimate_tune_memory`（§4.1）は `isinstance(provider, MemoryEstimateProvider)` のときだけ呼び、持たない provider、また factory が見積もれない adapter を作るときは `CONFIG_INVALID`（`reason: "memory_estimate_unsupported"`）を送出する。`estimate_memory` は `resource_warning` と同じ評価を通る。`memory_role` は tune の包絡で次元をどう扱うかを決める閉じた集合で、`"increasing"`（値について見積もりが減らない。端の 2 点）、`"choices"`（順序が無い。categorical の全ての選択肢だけが上限を与え、数値の次元では決められない）、`"none"`（見積もりが読まない。数値は下端の 1 点）、集合に無い名前は `None`（`unresolved`、`incomplete`）。categorical の次元は役割によらず全ての選択肢を候補にし、役割が `None` なら `unresolved` に入る。`memory_candidates` は数値の範囲の端のほかに評価する値で、LightGBM の provider は `max_depth` の範囲が 0 以下を含むとき（範囲全体が 0 未満でも）0（制限なし）を返し、ほかの名前には何も返さない。`is_device_name` と `device_is_cpu` は device を正式名で決める 1 つの場所である（H-0150 対応方針 6）。LightGBM の知識（閉じた集合、0 の候補）は `estimators/lgbm/memory_check.py` にある。LightGBM の `"choices"` は、見積もりが（確定したパラメーターを通して）読む名前のうち categorical の次元になりうるもので、`objective`・`linear_tree`・`num_class`・`categorical_feature`・`forcedbins_filename`・スマートパラメーターの `auto_num_leaves` である（別名は正式名に直して引く）。`max_bin_by_feature` は見積もりが読むが、選択肢が list なので探索の次元にならない（H-0150 改訂 1）。
 
 `ResourceWarningProvider` も `EstimatorProvider` とは別の任意の機能である。`Model.fit` と `Model.tune` は `isinstance(provider, ResourceWarningProvider)` のときだけ `resource_warning(...)` を呼び、文が返れば学習の前に `UserWarning` を出す（§5.3 の `auto_num_leaves` のメモリの警告）。持たない provider では何もしない。
 

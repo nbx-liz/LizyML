@@ -23,6 +23,7 @@ from lizyml.core.types import MemoryEstimate, TuneMemoryEstimate
 from lizyml.estimators.lgbm.memory_check import assess, feature_bins
 from lizyml.estimators.lgbm.param_names import LGBM_CANONICAL_NAME
 from lizyml.estimators.lgbm.provider import LGBMProvider
+from lizyml.tuning.lineage import classify_study
 from tests._helpers import (
     make_binary_df,
     make_config,
@@ -241,16 +242,19 @@ def test_a_possible_non_cpu_device_is_unresolved(
     assert "device_type" in est.unresolved
 
 
-def test_a_fixed_device_is_unresolved_and_a_later_layer_hides_the_lower(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    "fixed",
+    [{"device_type": "gpu"}, {"device": "cuda"}],
+    ids=["device_type=gpu", "alias device=cuda"],
+)
+def test_a_fixed_device_is_unresolved(
+    fixed: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    df = _df("regression")
-    _fixed(monkeypatch, device_type="gpu")
-    est = _estimate(_cfg(space=_space(), mode="merge"), df)
-    assert "device_type" in est.unresolved
-    _fixed(monkeypatch, device="cuda")  # an alias spelling of the fixed layer
-    est = _estimate(_cfg(space=_space(), mode="merge"), df)
-    assert "device_type" in est.unresolved
+    _fixed(monkeypatch, **fixed)  # one spelling alone in the fixed layer
+    names = LGBMProvider().default_fixed_params("regression")
+    assert [k for k in names if k in ("device", "device_type")] == list(fixed)
+    est = _estimate(_cfg(space=_space(), mode="merge"), _df("regression"))
+    assert "device_type" in est.unresolved and est.status == "incomplete"
 
 
 def test_a_fixed_cpu_hides_a_gpu_in_model_params(
@@ -284,6 +288,8 @@ def test_the_device_is_decided_before_candidates_are_assembled(
     )
     est = _estimate(_cfg(space=space, mode="merge"), _df("regression"))
     assert "device_type" in est.unresolved and est.status == "incomplete"
+    # The 0 end is assembled and fails on its own (#434): recorded, not hidden.
+    assert any("ratio must be in (0, 1)" in f for f in est.failures)
 
 
 # --- acceptance 4/5/7: the next round, WAITING trials, no writes, no-trial rounds --
@@ -414,10 +420,19 @@ def test_a_waiting_trial_makes_a_running_round_incomplete(
     assert est.envelope is not None  # the candidates are still evaluated
 
 
+@pytest.mark.parametrize("layer", ["model.params", "round fixed"])
 def test_a_round_with_no_trial_is_complete_and_evaluates_nothing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, train_stub: _Recorder
+    layer: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    train_stub: _Recorder,
 ) -> None:
-    cfg = _cfg(space=_space(), n_trials=2, device_type="gpu")
+    if layer == "round fixed":
+        # The study records the fixed layer, so the open round's is the GPU.
+        _fixed(monkeypatch, device_type="gpu")
+        cfg = _cfg(space=_space(), mode="merge", n_trials=2)
+    else:
+        cfg = _cfg(space=_space(), n_trials=2, device_type="gpu")
     df = _df("regression")
     url = _url(tmp_path)
     _crashing_close(monkeypatch)
@@ -429,8 +444,13 @@ def test_a_round_with_no_trial_is_complete_and_evaluates_nothing(
     # An open round whose trials are all done: nothing is left to run, and
     # neither the WAITING trial nor the GPU in model.params is looked at.
     est = Model(cfg).estimate_tune_memory(df, resume=True, storage=url, study_name="s")
-    assert est.status == "complete"
+    assert est.status == "complete" and est.waiting_trials == 1  # the true count
     assert est.envelope is None and est.n_candidates == 0 and est.unresolved == ()
+    if layer == "round fixed":
+        study = optuna.load_study(study_name="s", storage=url)
+        lineage = classify_study(study.user_attrs, study.trials)
+        assert lineage.study is not None
+        assert lineage.study.fixed.get("device_type") == "gpu"
 
 
 def test_the_study_is_not_written(tmp_path: Path, train_stub: _Recorder) -> None:

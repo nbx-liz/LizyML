@@ -326,3 +326,79 @@ def message(assessment: MemoryAssessment) -> str:
         "once; an upper bound under early stopping; isotonic calibration is not "
         f"counted). To lower it, {remedy}."
     )
+
+
+# ---------------------------------------------------------------------------
+# H-0150: how the estimate depends on a parameter, for the tune envelope
+# ---------------------------------------------------------------------------
+
+#: The estimate never decreases as the value grows (rounds, leaves, bins,
+#: depth), by LightGBM's canonical name or the smart parameter's own.
+MEMORY_INCREASING = frozenset(
+    {"num_iterations", "num_leaves", "max_bin", "max_depth", "num_leaves_ratio"}
+)
+#: The estimate does not read the value. ``device_type`` is here because the
+#: estimate is the CPU one; the device is decided apart (``device_is_cpu``).
+MEMORY_NONE = frozenset(
+    {
+        "learning_rate",
+        "feature_fraction",
+        "bagging_fraction",
+        "bagging_freq",
+        "lambda_l1",
+        "lambda_l2",
+        "min_gain_to_split",
+        "min_data_in_leaf",
+        "min_data_in_leaf_ratio",
+        "early_stopping_round",
+        "validation_ratio",
+        "device_type",
+    }
+)
+#: Unordered: no direction is claimed, so only enumerating the choices of a
+#: categorical dimension bounds the estimate (a numeric dimension of these is
+#: undecided). Each is read by the assessment, directly or through the
+#: finalized parameters: ``linear_tree`` (the linear-tree bytes),
+#: ``num_class`` (trees per round), ``categorical_feature`` and
+#: ``forcedbins_filename`` (they widen the bins), ``auto_num_leaves`` (the
+#: smart parameter that derives ``num_leaves`` and sets ``cause``), and
+#: ``objective``.
+MEMORY_CHOICES = frozenset(
+    {
+        "objective",
+        "linear_tree",
+        "num_class",
+        "categorical_feature",
+        "forcedbins_filename",
+        "auto_num_leaves",
+    }
+)
+
+#: ``max_depth`` at or below 0 is LightGBM's "no limit"; 0 stands for them all.
+_UNLIMITED_DEPTH = 0
+
+
+def memory_role(name: str) -> Literal["increasing", "choices", "none"] | None:
+    """The memory role of *name* under any spelling; ``None`` outside the
+    closed set (the bound cannot be decided)."""
+    canonical = LGBM_CANONICAL_NAME.get(name, name)
+    if canonical in MEMORY_INCREASING:
+        return "increasing"
+    if canonical in MEMORY_CHOICES:
+        return "choices"
+    if canonical in MEMORY_NONE:
+        return "none"
+    return None
+
+
+def memory_candidates(name: str, low: Any, high: Any) -> tuple[Any, ...]:
+    """Extra candidate values for a numeric *name* in ``[low, high]``.
+
+    Only ``max_depth`` has one: a range reaching 0 or below holds LightGBM's
+    unlimited depth, so 0 is a candidate too, even when the whole range lies
+    below 0. Every other name has none (``high`` is part of the contract).
+    """
+    del high
+    if LGBM_CANONICAL_NAME.get(name, name) != "max_depth":
+        return ()
+    return (_UNLIMITED_DEPTH,) if low <= _UNLIMITED_DEPTH else ()

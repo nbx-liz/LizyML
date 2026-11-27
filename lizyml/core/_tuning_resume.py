@@ -310,13 +310,17 @@ def check_against_record(
     identity: ObjectiveIdentity,
     versions: Mapping[str, str],
     study_name: str | None,
+    *,
+    stacklevel: int = 4,
 ) -> None:
     """Check a stored study's record against this call (§5.1, §4.3).
 
     In order: the config's ``space_mode`` and space against the study's
     origin (checked first so a ``space_mode`` edit, which also changes
     ``config.fixed``, gets its own message); the objective identity; then
-    the library versions, which only warn (D4).
+    the library versions, which only warn (D4). *stacklevel* is the version
+    warning's, counted from this function: the default 4 names the frame
+    above a method that calls :func:`judge_existing` directly.
     """
     name = _shown(study_name)
     _check_config_space(cfg, record, name)
@@ -358,7 +362,7 @@ def check_against_record(
                 "and, even with the same seed, subsequent trials may differ from "
                 "continuing with the recorded version."
             )
-        warnings.warn(message, UserWarning, stacklevel=4)
+        warnings.warn(message, UserWarning, stacklevel=stacklevel)
 
 
 def objective_identity(
@@ -401,17 +405,23 @@ def judge_existing(
     versions: Mapping[str, str],
     direction: Literal["minimize", "maximize"],
     study_name: str | None,
+    stacklevel: int = 4,
 ) -> None:
     """The checks every existing study passes before a call uses it (§4.3).
 
     The study's direction, then, when it carries a record, the config space,
     the objective identity and the versions (:func:`check_against_record`).
     Reads only. The state refusals (:func:`refuse_state`) come first, at the
-    caller, which may add its own between them and these.
+    caller, which may add its own between them and these. *stacklevel* is
+    passed to the version warning: a caller one frame deeper than the public
+    method (the shared tune planning, H-0150) passes 5, so the warning still
+    names the code that called ``tune``.
     """
     _tuner.check_study_direction(study, direction)
     if lineage.study is not None:
-        check_against_record(cfg, lineage.study, identity, versions, study_name)
+        check_against_record(
+            cfg, lineage.study, identity, versions, study_name, stacklevel=stacklevel
+        )
 
 
 # ---------------------------------------------------------------------------

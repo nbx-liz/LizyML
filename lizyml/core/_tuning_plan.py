@@ -440,7 +440,9 @@ def plan_open_round(
             f"tuning.optuna.params.n_trials={config_n_trials} is ignored: round {k} "
             f"is open and finishes with its recorded n_trials={record.n_trials}.",
             UserWarning,
-            stacklevel=4,
+            # this, plan_round, the shared planning (H-0150), tune or the
+            # estimate: the code that called them.
+            stacklevel=5,
         )
     if boundary_threshold != record.boundary_threshold:
         _log.info(

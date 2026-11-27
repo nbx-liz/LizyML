@@ -550,6 +550,13 @@ class MemoryEstimateProvider(Protocol):  # pragma: no cover
         ``"none"`` (not at all); ``None`` when the provider cannot say."""
         ...
 
+    def memory_candidates(self, name: str, low: Any, high: Any) -> tuple[Any, ...]:
+        """Extra values the tune envelope evaluates for a numeric dimension
+        *name* over ``[low, high]``, beyond its two ends: a special value of
+        the estimator library (LightGBM's unlimited ``max_depth``) that the
+        ends alone would not reach. Empty for most names."""
+        ...
+
     def is_device_name(self, name: str) -> bool:
         """Whether *name* is a spelling of the parameter that picks the device."""
         ...

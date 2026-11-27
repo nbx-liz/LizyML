@@ -80,8 +80,10 @@ class ModelTuneMemoryMixin:
         ranges include an inherited range, a boundary expansion and an open
         round's recorded range). Each candidate point -- both ends of an
         ``"increasing"`` numeric dimension (stepped ones through the objective's
-        grid), the lower end of the others, every choice of a categorical one --
-        is assembled and assessed the way a trial is, and the largest estimate
+        grid) plus the provider's extra values for the range (LightGBM's
+        unlimited depth, 0, for a ``max_depth`` range reaching 0 or below), the
+        lower end of the others, every choice of a categorical one -- is
+        assembled and assessed the way a trial is, and the largest estimate
         is the ``envelope``.
 
         ``status == "complete"`` promises only: while the study does not change,
@@ -90,15 +92,27 @@ class ModelTuneMemoryMixin:
         say which point the sampler draws, and it does not cover WAITING
         trials, values outside the ranges or a non-CPU device. The result is
         ``"incomplete"`` when the study holds a WAITING trial the next round
-        would run, when a numeric dimension is outside the provider's closed
+        would run, when a dimension's name is outside the provider's closed
         set, when a candidate point cannot be evaluated (``failures``), or when
         the device may not be the CPU (``unresolved`` holds ``device_type``).
         An ``"incomplete"`` envelope is the maximum over the evaluated points,
-        not an upper bound, and must not clear a whole-job check. A categorical
-        dimension enumerates every choice and counts as resolved whatever its
-        memory role; ``unresolved`` names numeric dimensions only (and the
-        device). ``n_candidates`` counts the points that were evaluated, not the
-        ones in ``failures``.
+        not an upper bound. A categorical dimension enumerates every choice;
+        like a numeric one, it is ``unresolved`` when its name is outside the
+        provider's closed set (``memory_role`` is ``None``). Each point that
+        cannot be evaluated is one ``failures`` entry (the exception's type and
+        text) and puts the dimensions that supplied end values or choices at it
+        into ``unresolved``. ``n_candidates`` counts the points that were
+        evaluated, not the ones in ``failures``. ``waiting_trials`` is the
+        study's WAITING count even when the round runs no trial.
+
+        How to use it (policy 6): the estimate is compared with a budget for
+        the extra CPU memory, not the process's resident set. An
+        ``"incomplete"`` envelope does not clear a whole-job check before the
+        job starts; the caller either refuses the job then, or, when its policy
+        allows, starts it and relies on a per-trial budget. A ``"complete"``
+        envelope over the budget is grounds for refusing the job
+        conservatively, though it does not show that the sampler will draw
+        that point.
 
         The estimate covers the next round only: a boundary expansion after it
         is not estimated (when ``expand_boundary`` is on, a later round's range
@@ -117,8 +131,9 @@ class ModelTuneMemoryMixin:
 
         Raises:
             LizyMLError: ``CONFIG_INVALID`` (``reason:
-                "memory_estimate_unsupported"``) when the provider cannot
-                estimate; whatever ``tune`` refuses before it writes.
+                "memory_estimate_unsupported"``) when the provider lacks the
+                capability or cannot estimate the adapter its factory builds;
+                whatever ``tune`` refuses before it writes.
         """
         cfg = self._cfg
         provider = require_memory_provider(get_provider(cfg.model))
@@ -140,23 +155,25 @@ class ModelTuneMemoryMixin:
             self._block_values = block_values
             self._input_categories = input_categories
         plan = ctx.plan
-        if not plan.runs_optimize:
-            return TuneMemoryEstimate(
-                status="complete",
-                envelope=None,
-                unresolved=(),
-                waiting_trials=0,
-                round=plan.round_number,
-                n_candidates=0,
-                failures=(),
-            )
-
         study = ctx.target.study
+        # The study's true WAITING count (policy 1); only its effect on
+        # `status` depends on whether the round runs a trial.
         waiting = (
             sum(1 for t in study.trials if t.state.name == "WAITING")
             if study is not None
             else 0
         )
+        if not plan.runs_optimize:
+            return TuneMemoryEstimate(
+                status="complete",
+                envelope=None,
+                unresolved=(),
+                waiting_trials=waiting,
+                round=plan.round_number,
+                n_candidates=0,
+                failures=(),
+            )
+
         off_cpu = device_may_leave_cpu(
             provider,
             plan.effective,

@@ -298,18 +298,12 @@ class ModelTuningMixin:
             study_name=study_name,
             space=space,
         )
-        direction = ctx.direction
-        provider = ctx.provider
-        X, y, groups = ctx.X, ctx.y, ctx.groups
-        n_classes = ctx.n_classes
-        splitter = ctx.splitter
-        target = ctx.target
-        lineage = ctx.lineage
-        plan = ctx.plan
+        direction, provider, splitter = ctx.direction, ctx.provider, ctx.splitter
+        X, y, groups, n_classes = ctx.X, ctx.y, ctx.groups, ctx.n_classes
+        target, lineage, plan = ctx.target, ctx.lineage, ctx.plan
         base_model_params = ctx.base_model_params
         base_smart_params = ctx.base_smart_params
-        study_payload = ctx.study_payload
-        round_payload = ctx.round_payload
+        study_payload, round_payload = ctx.study_payload, ctx.round_payload
         held_storage, held_name = ctx.held_storage, ctx.held_name
 
         # --- Phase E: writes, in the §7.1 order --------------------------------
@@ -573,6 +567,17 @@ class ModelTuningMixin:
         self._tuning_study_name = study_name
 
     # --- tune() helpers (#114 — split god method) -------------------------------
+
+    def _tune_splitter(self, build: Callable[..., BaseSplitter]) -> BaseSplitter:
+        """The outer splitter of a tune call; *build* is ``build_splitter``.
+
+        Called from here, so the H-0013 kfold warning (``stacklevel=2``) names
+        this module as it did before the planning moved out (H-0150).
+        """
+        cfg = self._cfg
+        return build(
+            cfg, block_values=self._block_values, task=cfg.task, seed=cfg.training.seed
+        )
 
     def _build_tune_objective(
         self,
