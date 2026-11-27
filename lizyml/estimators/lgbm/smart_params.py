@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-import numbers
+from fractions import Fraction
 from typing import Any
 
 import numpy as np
@@ -110,10 +110,9 @@ def smart_managed_names(
 
 #: The most leaves ``auto_num_leaves`` derives (2**17, LightGBM's own cap).
 _MAX_DERIVED_LEAVES = 131072
-#: ``mantissa * 2**shift`` with ``mantissa >= 0.5`` reaches the cap from here.
-_CAP_SHIFT = 18
-#: The deepest depth whose ``2.0**depth`` is finite in IEEE double.
-_FLOAT_SAFE_DEPTH = 1023
+#: From this whole depth on, even the smallest positive ratio (2**-1074)
+#: derives at least 2**17 leaves: the cap.
+_CAP_DEPTH_FOR_ANY_RATIO = 1091
 
 
 def _compute_num_leaves(max_depth: float | None, ratio: float) -> int:
@@ -122,34 +121,38 @@ def _compute_num_leaves(max_depth: float | None, ratio: float) -> int:
     ``max_depth <= 0`` is no limit, as in LightGBM (H-0140); ``0`` used to
     derive 8 leaves.
 
-    The derivation and the cap are unchanged; only the overflow is gone (#433).
-    The old ``math.ceil(2**max_depth * ratio)`` converted ``2**max_depth`` to
-    ``float`` and raised ``OverflowError`` from depth 1024 on, before the cap
-    applied. Here ``2**whole * x`` (``x`` the ratio, times ``2**frac`` for a
-    fractional depth) is formed as ``mantissa * 2**(whole + exponent)`` of
-    ``math.frexp(x)``. Scaling by a power of two is exact in floating point,
-    so every depth the old product could compute derives the same value. A
-    float depth up to 1023, or one that is not finite, keeps the old
-    expression itself.
+    The product ``2**max_depth * ratio`` is evaluated exactly as before #433,
+    so every input it handled derives the same value. Only when it raises
+    ``OverflowError`` (``2**max_depth`` past the float range, from depth 1024
+    on) is the value computed exactly instead (:func:`_beyond_float_range`);
+    that error used to escape before the cap applied, failing fit and
+    aborting tune (#433).
     """
     if max_depth is None or max_depth <= 0:
-        return max(8, min(_MAX_DERIVED_LEAVES, math.ceil(_MAX_DERIVED_LEAVES * ratio)))
-    if isinstance(max_depth, numbers.Integral):
-        whole, scaled = int(max_depth), ratio
+        value = _MAX_DERIVED_LEAVES * ratio
     else:
-        depth = float(max_depth)
-        if not math.isfinite(depth) or depth <= _FLOAT_SAFE_DEPTH:
-            # The pre-#433 expression, kept as it was for float depths.
-            return max(8, min(_MAX_DERIVED_LEAVES, math.ceil(2**depth * ratio)))
-        whole = math.floor(depth)
-        scaled = ratio * 2.0 ** (depth - whole)
-    mantissa, exponent = math.frexp(scaled)
-    shift = whole + exponent
-    # mantissa is in [0.5, 1) for a positive ratio, so a shift of 18 or more
-    # already gives at least 2**17 leaves: the cap.
-    if shift >= _CAP_SHIFT:
-        return _MAX_DERIVED_LEAVES if mantissa > 0 else 8
-    return max(8, min(_MAX_DERIVED_LEAVES, math.ceil(math.ldexp(mantissa, shift))))
+        try:
+            value = 2**max_depth * ratio
+        except OverflowError:
+            return _beyond_float_range(max_depth, ratio)
+    return max(8, min(_MAX_DERIVED_LEAVES, math.ceil(value)))
+
+
+def _beyond_float_range(max_depth: float, ratio: float) -> int:
+    """``2**max_depth * ratio`` leaves, capped, for a depth past the float range.
+
+    The depth is at least 1024 here. A ratio that is not positive derives the
+    minimum of 8. From whole depth 1091 on any positive ratio reaches the cap;
+    below it the product is formed exactly with ``Fraction`` (the fractional
+    part of a float depth enters as ``2.0**frac``).
+    """
+    if not ratio > 0:
+        return 8
+    whole = math.floor(max_depth)
+    if whole >= _CAP_DEPTH_FOR_ANY_RATIO:
+        return _MAX_DERIVED_LEAVES
+    exact = Fraction(ratio) * Fraction(2.0 ** (max_depth - whole)) * (1 << whole)
+    return max(8, min(_MAX_DERIVED_LEAVES, math.ceil(exact)))
 
 
 def _compute_ratio_param(n_rows: int, ratio: float) -> int:
