@@ -1,4 +1,7 @@
-"""#433: automatic leaf derivation must reach its cap for every admitted depth.
+"""#433: automatic leaf derivation must not overflow for any admitted depth.
+
+The 131072-leaf cap is an upper bound on the derived value: a tiny ratio can
+derive fewer leaves even at a large depth.
 
 ``_compute_num_leaves`` multiplied the integer ``2**max_depth`` by the float
 ratio, which converts it to ``float`` and raises ``OverflowError`` from depth
@@ -10,6 +13,7 @@ from __future__ import annotations
 
 import math
 import random
+import tracemalloc
 import warnings
 from fractions import Fraction
 from typing import Any
@@ -98,6 +102,19 @@ def test_every_input_the_old_product_handled_is_unchanged() -> None:
     for depth, ratio in cases:
         got = smart_params._compute_num_leaves(depth, ratio)  # noqa: SLF001
         assert got == _legacy(depth, ratio), (depth, ratio)
+
+
+@pytest.mark.parametrize("depth", [2**31 - 1, 10**18])
+def test_a_huge_int_depth_does_not_build_its_power_of_two(depth: int) -> None:
+    """Review round 3: ``2**2147483647`` alone needs about 273 MiB."""
+    tracemalloc.start()
+    try:
+        got = smart_params._compute_num_leaves(depth, 1.0)  # noqa: SLF001
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert got == _CAP
+    assert peak < 1 << 20  # well under 1 MiB
 
 
 @pytest.mark.parametrize("depth", [1024.5, 2000.0])

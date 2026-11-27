@@ -113,6 +113,8 @@ _MAX_DERIVED_LEAVES = 131072
 #: From this whole depth on, even the smallest positive ratio (2**-1074)
 #: derives at least 2**17 leaves: the cap.
 _CAP_DEPTH_FOR_ANY_RATIO = 1091
+#: The smallest ``int`` depth whose ``2**max_depth`` does not fit a float.
+_FIRST_OVERFLOWING_INT_DEPTH = 1024
 
 
 def _compute_num_leaves(max_depth: float | None, ratio: float) -> int:
@@ -126,10 +128,14 @@ def _compute_num_leaves(max_depth: float | None, ratio: float) -> int:
     ``OverflowError`` (``2**max_depth`` past the float range, from depth 1024
     on) is the value computed exactly instead (:func:`_beyond_float_range`);
     that error used to escape before the cap applied, failing fit and
-    aborting tune (#433).
+    aborting tune (#433). An ``int`` depth of 1024 or more goes there
+    directly: its ``2**max_depth`` never fits a float, and building that
+    integer first can exhaust memory for a huge depth.
     """
     if max_depth is None or max_depth <= 0:
         value = _MAX_DERIVED_LEAVES * ratio
+    elif isinstance(max_depth, int) and max_depth >= _FIRST_OVERFLOWING_INT_DEPTH:
+        return _beyond_float_range(max_depth, ratio)
     else:
         try:
             value = 2**max_depth * ratio
