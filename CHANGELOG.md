@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **`auto_num_leaves` reaches its 131072-leaf cap for any `max_depth`; #433 is fixed** ([#433](https://github.com/nbx-liz/LizyML/issues/433)). From `max_depth=1024` on, deriving `num_leaves` converted `2**max_depth` to `float` and raised a bare `OverflowError` before the cap applied: `Model.fit` failed with no `LizyMLError` code, and `Model.tune` aborted the whole study at the first such trial (`OverflowError` is outside the trial `catch=`). These depths now derive 131072 leaves, as depth 17 and above already did for a ratio of 1. Depths up to 1023 derive exactly the same values as before.
+
 ## [0.22.0] - 2026-11-20
 
 ### Changed

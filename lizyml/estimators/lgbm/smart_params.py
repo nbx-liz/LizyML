@@ -107,14 +107,34 @@ def smart_managed_names(
     return managed
 
 
+#: The most leaves ``auto_num_leaves`` derives (2**17, LightGBM's own cap).
+_MAX_DERIVED_LEAVES = 131072
+#: ``mantissa * 2**shift`` with ``mantissa >= 0.5`` reaches the cap from here.
+_CAP_SHIFT = 18
+
+
 def _compute_num_leaves(max_depth: int | None, ratio: float) -> int:
     """Compute num_leaves from max_depth and ratio.
 
     ``max_depth <= 0`` is no limit, as in LightGBM (H-0140); ``0`` used to
     derive 8 leaves.
+
+    ``2**max_depth * ratio`` is computed as ``mantissa * 2**(max_depth +
+    exponent)`` of the ratio (``math.frexp``), so no ``int`` is converted to
+    ``float``: from depth 1024 on that conversion raised ``OverflowError``
+    before the cap applied (#433). Multiplying by a power of two is exact in
+    floating point, so every depth the old product could compute derives the
+    same value.
     """
-    base = 131072 if max_depth is None or max_depth <= 0 else 2**max_depth
-    return max(8, min(131072, math.ceil(base * ratio)))
+    if max_depth is None or max_depth <= 0:
+        return max(8, min(_MAX_DERIVED_LEAVES, math.ceil(_MAX_DERIVED_LEAVES * ratio)))
+    mantissa, exponent = math.frexp(ratio)
+    shift = max_depth + exponent
+    # mantissa is in [0.5, 1) for a positive ratio, so a shift of 18 or more
+    # already gives at least 2**17 leaves: the cap.
+    if shift >= _CAP_SHIFT:
+        return _MAX_DERIVED_LEAVES if mantissa > 0 else 8
+    return max(8, min(_MAX_DERIVED_LEAVES, math.ceil(math.ldexp(mantissa, shift))))
 
 
 def _compute_ratio_param(n_rows: int, ratio: float) -> int:
