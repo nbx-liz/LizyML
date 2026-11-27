@@ -14,6 +14,7 @@ import numpy.typing as npt
 import pandas as pd
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.types.memory_estimate import MemoryEstimate
 from lizyml.core.types.search_dim import SearchDim
 from lizyml.core.types.smart_ratio import SMART_RATIO_RANGES
 from lizyml.core.types.task import TaskType
@@ -29,11 +30,7 @@ from lizyml.estimators.lgbm.defaults import (
     default_space,
 )
 from lizyml.estimators.lgbm.feature_names import lightgbm_refused_feature_name
-from lizyml.estimators.lgbm.memory_check import (
-    assess,
-    feature_bins,
-    finalized,
-)
+from lizyml.estimators.lgbm.memory_check import assess_factory
 from lizyml.estimators.lgbm.memory_check import message as memory_message
 from lizyml.estimators.lgbm.param_names import (
     LGBM_CANONICAL_NAME,
@@ -48,6 +45,7 @@ from lizyml.estimators.lgbm.smart_params import (
 )
 from lizyml.estimators.provider import (
     ExportParams,
+    MemoryRole,
     MetricChoices,
     RefusedFeatureName,
     SmartValueRule,
@@ -55,6 +53,29 @@ from lizyml.estimators.provider import (
 from lizyml.features.encoders.categorical_encoder import UnseenPolicy
 from lizyml.features.pipeline_base import BaseFeaturePipeline
 from lizyml.features.pipelines_native import NativeFeaturePipeline
+
+# H-0150: how the memory estimate reads a parameter, by LightGBM's canonical
+# name (or the smart parameter's own). ``increasing``: the estimate never
+# decreases as the value grows (rounds, leaves, bins, depth).  ``none``: the
+# estimate does not read it. A closed set: a name in neither is undecided.
+_MEMORY_INCREASING = frozenset(
+    {"num_iterations", "num_leaves", "max_bin", "max_depth", "num_leaves_ratio"}
+)
+_MEMORY_NONE = frozenset(
+    {
+        "learning_rate",
+        "feature_fraction",
+        "bagging_fraction",
+        "bagging_freq",
+        "lambda_l1",
+        "lambda_l2",
+        "min_gain_to_split",
+        "min_data_in_leaf",
+        "min_data_in_leaf_ratio",
+        "early_stopping_round",
+        "validation_ratio",
+    }
+)
 
 # H-0093: the single declaration of which fields are smart parameters.
 # `extract_smart_params` reads the config through it and `smart_param_names`
@@ -437,19 +458,83 @@ class LGBMProvider:
         Reads the finalized parameters of one adapter the factory builds; the
         warning fires at ``num_leaves >= 16384`` or an estimate of 1 GiB.
         """
-        adapter = estimator_factory()
-        if not isinstance(adapter, LGBMAdapter):
-            return None
-        params, num_boost_round = finalized(adapter)
-        assessment = assess(
-            params,
-            num_boost_round,
-            bins=feature_bins(X, params),
-            auto_num_leaves=bool(smart_params.get("auto_num_leaves", False)),
+        assessment = assess_factory(
+            estimator_factory,
+            X=X,
+            smart_params=smart_params,
             n_boosters=n_boosters,
-            n_features=X.shape[1],
         )
-        return memory_message(assessment) if assessment.fires else None
+        if assessment is None or not assessment.fires:
+            return None
+        return memory_message(assessment)
+
+    def estimate_memory(
+        self,
+        *,
+        estimator_factory: Callable[[], BaseEstimatorAdapter],
+        X: pd.DataFrame,
+        smart_params: dict[str, Any],
+        n_boosters: int,
+    ) -> MemoryEstimate:
+        """The extra CPU memory of the fit *estimator_factory* builds (H-0150).
+
+        The same assessment ``resource_warning`` reads. An estimate of extra
+        CPU memory, not a bound on the process's resident set.
+
+        Raises:
+            LizyMLError: ``CONFIG_INVALID`` (``reason:
+                "memory_estimate_unsupported"``) when the factory does not
+                build a LightGBM adapter.
+        """
+        a = assess_factory(
+            estimator_factory,
+            X=X,
+            smart_params=smart_params,
+            n_boosters=n_boosters,
+        )
+        if a is None:
+            raise LizyMLError(
+                code=ErrorCode.CONFIG_INVALID,
+                user_message=(
+                    "The estimator is not a LightGBM adapter, so its memory "
+                    "cannot be estimated."
+                ),
+                context={"reason": "memory_estimate_unsupported"},
+            )
+        return MemoryEstimate(
+            num_leaves=a.num_leaves,
+            cause=a.cause,
+            max_depth=a.max_depth,
+            estimate_bytes=a.estimate_bytes,
+            n_boosters=a.n_boosters,
+        )
+
+    def memory_role(self, name: str) -> MemoryRole | None:
+        """How the estimate depends on *name*, under any spelling (H-0150).
+
+        ``"increasing"``: the estimate never decreases as the value grows.
+        ``"none"``: the estimate does not read it (a closed set). ``None``:
+        outside the closed set, so the bound cannot be decided.
+        """
+        canonical = LGBM_CANONICAL_NAME.get(name, name)
+        if canonical in _MEMORY_INCREASING:
+            return "increasing"
+        if canonical in _MEMORY_NONE:
+            return "none"
+        return None
+
+    def device_is_cpu(self, params: dict[str, Any]) -> bool:
+        """Whether *params* train on the CPU (H-0150 policy 6).
+
+        LightGBM's ``device_type`` under any spelling (``device`` too); absent
+        means the CPU. The one place the device is decided.
+        """
+        for key, value in params.items():
+            if LGBM_CANONICAL_NAME.get(key, key) == "device_type" and (
+                str(value).strip().lower() != "cpu"
+            ):
+                return False
+        return True
 
     def runtime_deps(self) -> dict[str, str]:
         """Return LightGBM package version."""

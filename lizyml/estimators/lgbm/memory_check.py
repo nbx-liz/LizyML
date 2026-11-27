@@ -18,12 +18,14 @@ calibration boosters. It never changes a parameter.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
 
+from lizyml.estimators.base import BaseEstimatorAdapter
 from lizyml.estimators.lgbm.adapter import LGBMAdapter
 from lizyml.estimators.lgbm.param_names import LGBM_CANONICAL_NAME
 
@@ -261,6 +263,32 @@ def assess(
             linear_features=n_features if linear else 0,
         ),
         n_boosters=n_boosters,
+    )
+
+
+def assess_factory(
+    estimator_factory: Callable[[], BaseEstimatorAdapter],
+    *,
+    X: pd.DataFrame,
+    smart_params: dict[str, Any],
+    n_boosters: int,
+) -> MemoryAssessment | None:
+    """The one assessment the warning and the public estimate share (H-0150).
+
+    Reads the finalized parameters of one adapter *estimator_factory* builds;
+    ``None`` when that adapter is not a LightGBM one.
+    """
+    adapter = estimator_factory()
+    if not isinstance(adapter, LGBMAdapter):
+        return None
+    params, num_boost_round = finalized(adapter)
+    return assess(
+        params,
+        num_boost_round,
+        bins=feature_bins(X, params),
+        auto_num_leaves=bool(smart_params.get("auto_num_leaves", False)),
+        n_boosters=n_boosters,
+        n_features=X.shape[1],
     )
 
 
