@@ -607,6 +607,10 @@ anchors = ["FeatureNameRuleProvider", "check_duplicate_columns", "json_special_c
 disposition = "specified"
 anchors = ["make_tpe_sampler", "multivariate=True", "constant_liar=True", "ExperimentalWarning", "h0149_tpe_sequences.json"]
 
+[proposals."H-0150"]
+disposition = "pending"
+reason = "Proposed (#423): BLUEPRINT is updated by the implementation PR"
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 

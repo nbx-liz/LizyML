@@ -17809,3 +17809,124 @@ Firing rate: 16/16 of the Optuna versions measured in the admitted range (every 
 - **CI**（`89dde4d`）: 27 件すべて合格。latest-deps は Optuna 5.1.0 を解決して 23978 passed、lowest-direct は Optuna 3.1.0・NumPy 1.24.0 で 24373 passed、windows の smoke はこのテストのファイルを集めて 971 passed。
 - **マージ**: PR #424 を develop に squash merge（`bfab4cf`、2026-11-20）。#419 は手で close した。Codex が作った PR の記録は nbx-liz/lizy-harness#357（issuecomment-7028059568、訂正 -7028100849）。
 - **リリース**: v0.22.0（管理者の判断、#419 issuecomment-7028310703。Optuna 4.x 以前の利用者の列が変わるので minor を上げる。LizyStudio は `lizyml<0.22` なので、上限を手で上げるまで入らない）。
+
+## H-0150: fit と tune のメモリの見積もりを公開し、tune に opt-in のメモリの予算を足す（#423、LizyStudio#729）
+
+- **ステータス**: Proposed
+- **起票日**: 2026-11-27
+- **関連**: H-0140（学習の前の警告と見積もりの式）、H-0128（round に COMPLETE が無ければ `TUNING_FAILED`）、H-0122（study の記録）、H-0068（round と境界の拡張）、#423、LizyStudio#729（Studio の守り。予算の既定 4 GiB、P-0118）
+- **スコープ**:
+  - `Model.estimate_memory`・`Model.estimate_tune_memory` の追加、`Model.tune` の引数 `memory_budget_bytes`、公開の型（`core/types`）、provider の任意の capability、BLUEPRINT（公開 API・tune の節）、CHANGELOG、`docs/proposal_dispositions.toml`、テスト
+  - 範囲の外: `Model.fit` の予算（管理者の判断 1）、見積もりの式と係数の変更（H-0140 のまま）、Config の項目の追加、生成コード（`export_code`）、isotonic の校正の見積もり、GPU の見積もり、LizyStudio の変更
+
+Gate-category: none
+
+### 目的（課題）
+
+LizyStudio は、学習のメモリが予算を超える Fit と Tune を、LightGBM が確保する前に拒否したい（LizyStudio#729）。見積もり自体は H-0140 の `memory_check.assess`（`lizyml/estimators/lgbm/memory_check.py`）にあるが、公開の API はそれを返さない。`provider.resource_warning` は閾値（16384 葉以上か 1 GiB 以上）に当たったときに文を返すだけで、`Model.fit` と `Model.tune` はそれを `UserWarning` にするだけである。呼び出し側が自分の予算で判定するには、確定したパラメーター（別名、`num_class`、`linear_tree`）、round 数、bin（`max_bin`・`max_bin_by_feature`・広げる入力）、booster の数を LizyML の外で組み立て直すしかなく、LizyStudio の Proposal の Codex の批評は、組み立て直しが少なく見積もる 5 つの到達できる場合を見つけた。
+
+もう 1 つ、Studio がジョブの開始前に確かめられない trial がある。境界の拡張（`expand_boundary`）で広がった範囲の trial と、resume した study の記録した範囲の trial である。これには tune の中で trial を拒否する仕組みが要る。H-0140 はこの予算を検討して先送りした（H-0140 の代替案）。#423 はその判断を求めている。
+
+### 管理者の判断（2026-11-26。#423 issuecomment-7193622211 に記録）
+
+1. **予算は tune だけ**に入れる。`Model.tune` の実行時の引数とし、Config には入れない。予算を超える trial は学習せずに失敗として記録し、round に COMPLETE の trial が無ければ H-0128 どおり `TUNING_FAILED` にする。`Model.fit` には予算を付けない（呼び出し側は公開の見積もりで先に確かめる）。予算が無いときは今と同じに振る舞う。
+2. **1 つの Proposal**で、fit の見積もり、tune の見積もり（complete / incomplete の状態つき）、予算を扱う。
+
+### 実測（2026-11-27、develop `fc113c9`、Python 3.12.3、LightGBM 4.7.0、Optuna 5.0.0、machine V）
+
+スクリプトと出力は `docs/audits/2026-11-i423/` に置く。
+
+- **予算が働く率**（`budget_census.py`）: 同梱のチュートリアルのデータ 3 つで、既定の探索空間・5 fold・`auto_num_leaves: true` の tune を 300 trial ずつ走らせた。trial ごとの `check_resources` を、本物の見積もり（`finalized` → `feature_bins` → `assess`）を記録して学習の前に trial を失敗させるものに差し替えた。COMPLETE の trial が無いので TPE は startup と同じく無作為に引き、母集団は既定の空間の各次元の設定した分布（`learning_rate` は対数一様、ほかは一様）からの無作為な抽出になる。データは `pandas.read_csv` が返すままの形（object の列。アップロードが `Model.tune` に届く形、`--as-read`）と、カテゴリの列を先に `category` にした形の両方で走らせ、900 の trial の記録が完全に一致した（`census.json`・`census-as-read.json`。LizyML の `DataFrameBuilder` が object と string の列を自分で `category` にするため）。
+
+  | データ | task | 行・特徴量 | 最大 | 1 GiB 超 | 2 GiB 超 | 4 GiB 超 | 8 GiB 超 |
+  |---|---|---|---|---|---|---|---|
+  | credit-g | binary | 1000・20 | 2.54 GiB | 27/300 | 3/300 | 0/300 | 0/300 |
+  | vehicle | multiclass | 846・18 | 12.82 GiB | 84/300 | 52/300 | 24/300 | 10/300 |
+  | diamonds | regression | 53940・9 | 3.30 GiB | 27/300 | 10/300 | 0/300 | 0/300 |
+
+- **TPE は FAIL の trial から学ばない**（ソースを読んだ結果。Optuna 5.0.0 だけで、3.1〜4.x は読んでいない）: Optuna 5.0.0 の `optuna/samplers/_tpe/sampler.py` は、分布を作るときに COMPLETE と PRUNED の trial だけを読む（499 行・514 行）。予算で拒否した trial は `n_trials` を使い、sampler には何も教えない。
+- **拒否を trial ごとに読める場所が無い**: `lizyml/` の中で trial の `user_attrs` を読む所は無く（`grep`）、Studio が study を読む `read_study_lineage` の `StudyLineage` は trial を返さない（`lizyml/tuning/study_lineage.py`）。trial の `user_attrs` に理由を書いても、読む側が無い（DC4）。
+- **tune で学習する所は trial ごとに 1 か所**: `lizyml/core/_model_tuning.py` の `check_resources` の直後の `CVTrainer`。`lizyml/tuning/tuner.py` の `study.tell(..., FAIL)` は落ちたプロセスが残した RUNNING の trial を閉じるだけで、学習しない。
+
+Firing rate: unmeasurable before implementation (the argument does not exist yet, so no recorded tune has passed a budget and the first conjunct has no history to replay; measurable when LizyStudio P-0118 passes its 4 GiB default on real Studio tunes and the tune.trial.memory_refused log events are counted against all trials)
+
+| Conjunct | Env-dependent | Evidence | Machines | Bad input |
+|---|---|---|---|---|
+| 1. `memory_budget_bytes` が渡されている | no | not measured: 引数がまだ無く、渡した tune の記録が無い。LizyStudio は P-0118 で全ての tune に 4 GiB の既定値を渡す予定（LizyStudio#729） | — | — |
+| 2. trial の見積もりが予算を超える | no | measured separately: 24/900 of default-space tune trials on the three vendored tutorial datasets at 4 GiB (binary 0/300, multiclass 24/300, regression 0/300), by `budget_census.py` replaying `Model.tune` with the per-trial check replaced by the real H-0140 assessment and no training | — | — |
+
+### 対応方針（提案）
+
+1. **公開の型**（`lizyml/core/types/memory_estimate.py`、`lizyml.core.types` から公開）:
+   - `MemoryEstimate`（frozen dataclass）: `num_leaves`、`cause`（`"derived"`・`"explicit"`・`"default"`）、`max_depth`、`estimate_bytes`、`n_boosters`。H-0140 の `MemoryAssessment` と同じ意味で、`MemoryAssessment` は内部の型のまま、provider がこの型に写す。
+   - `TuneMemoryEstimate`（frozen dataclass）: `status`（`"complete"`・`"incomplete"`）、`envelope`（`MemoryEstimate | None`。評価できた候補の点の見積もりの最大）、`unresolved`（上限を決められなかった次元の名前の tuple。device を決められないときは `device_type`）、`waiting_trials`（対象の study の WAITING の trial の数）、`round`（見積もった round の番号）、`n_candidates`（評価した点の数）、`failures`（評価が例外になった点の例外の型と文の tuple）。`status` は、`unresolved` と `failures` が空で、次の round が trial を走らせるときに `waiting_trials` が 0 であるときだけ `"complete"` である。その round で走る trial が無いとき（開いた round の残りが 0 など）は、WAITING の trial や CPU でない device があっても `status="complete"`、`envelope=None`、`n_candidates=0` である（計画の直後にこの場合を返し、device の判定も候補の評価もしない）。
+2. **provider の任意の capability**（`lizyml/estimators/provider.py`）: `MemoryEstimateProvider` に `estimate_memory(*, estimator_factory, X, smart_params, n_boosters) -> MemoryEstimate` と `memory_role(name) -> Literal["increasing", "choices", "none"] | None` を置く。LightGBM の知識（別名、`max_depth` が 0 以下なら 131072 を基にすること、bin の数え方）は provider に閉じる。LightGBM の provider は H-0140 の `finalized`・`feature_bins`・`assess` をそのまま使い、`resource_warning` も同じ評価を通す（警告と見積もりが分かれない、DC3）。
+3. **`Model.estimate_memory(data=None, params=None) -> MemoryEstimate`**: `Model.fit(data=..., params=...)` が学習の前に計算する評価と同じ値を返す。同じ確定したパラメーター、`booster` は outer fold 数 + 1、同じ特徴量の bin。fit の前処理のうち評価の入力を作る部分を 1 つの関数にまとめ、`fit` と `estimate_memory` の両方がそれを呼ぶ。学習しない（`lgb.train` も `lgb.Dataset` も呼ばない）。Model の状態（fit 結果、tune 結果）を変えない。provider が `MemoryEstimateProvider` でないか、見積もれない adapter（LightGBM でない）なら `CONFIG_INVALID`（context に `reason: "memory_estimate_unsupported"`）を出し、`None` や 0 を返さない（DC1）。`estimate_tune_memory` も同じ。
+4. **`Model.estimate_tune_memory(data=None, *, resume=False, n_trials=None, expand_boundary=None, boundary_threshold=0.05, storage=None, study_name=None, space=None) -> TuneMemoryEstimate`**: 同じ引数の `Model.tune` が次に走らせる round を、tune と同じ計画の関数（`plan_round`）で決め、その round の有効な範囲（引き継いだ範囲、拡張した範囲、開いた round の記録した範囲を含む）で包絡を計算する。
+   - **`complete` の約束**: `complete` の包絡は、study がその間に変わらないとき、次の round の有効な範囲から sample される通常の CPU の trial の H-0140 の見積もりを上から抑える。WAITING の trial、範囲の外の値、CPU でない device の trial は約束に入らない。sampler がどの点を引くかは約束しない。
+   - **包絡の作り方**: その round の各次元を provider の `memory_role` で分ける。数値の `"increasing"`（見積もりがその値について減らない次元。`n_estimators` と別名、`num_leaves`、`max_bin`、`num_leaves_ratio`、`max_depth`）は端の 2 点を候補にし、`max_depth` は範囲が 0 以下を含むとき 0 も候補にする。`step` のある次元では、両端に目的関数と同じ `grid_value`（`lizyml/tuning/_step_grid.py`）を通した点を使う（登録の `check_grid` が両端を格子に乗せるので、両端そのものである）。数値の `"none"`（`learning_rate`、`feature_fraction`、`bagging_fraction`、`lambda_l1`、`lambda_l2`、`min_data_in_leaf_ratio`、`early_stopping_rounds`、`validation_ratio` など。閉じた集合として provider に書く）は下端の 1 点にする。categorical の次元は、`memory_role` によらず全ての選択肢を候補にする（`None` を含む選択肢が組み立てで失敗するかもしれないので、代表を 1 つ選ばない）。候補の直積の各点を、trial と同じ経路（パラメーターの統合 → `_build_train_components` → provider の `estimate_memory`）で評価し、最大を `envelope` にする。端の点で足りるのは、H-0140 の式（葉の数 ×（histogram × bin + 木 × round 数 × class 数 × booster 数））が各 `"increasing"` の次元について減らないからで、それは確定した round 数と葉の数が 1 以上のときに限る。そのため、候補の点で確定した round 数か葉の数が 1 未満なら（例えば固定値の `n_estimators=-1`）、その点を評価できない点として扱う（下の `failures`、`incomplete`）。
+   - **待っている trial は `incomplete`**: 次の round が trial を走らせるとき、対象の study に WAITING の trial が 1 つでもあれば（trial の番号によらない）、その数を `waiting_trials` に入れて `status="incomplete"` にする。WAITING の trial の固定値は候補にしない（Optuna がどの WAITING の trial を使うかと、その固定値が目的関数の格子でどう丸められるかを、見積もりは模さない）。前の round の WAITING の trial が次の round で走る今の tune の欠陥は、この Proposal の外で扱う（#432）。落ちた process が残した RUNNING の trial は、tune が学習せずに FAIL にする（`plan.running_to_fail`）ので包絡に入らず、見積もりはそれを FAIL にしない（書かない）。残りの trial の数は tune と同じ `plan_round` が決める。
+   - **評価できない点は `incomplete`**: 候補の点の評価が例外になったとき（例えば `max_depth` の上端 1024 で `_compute_num_leaves` が `OverflowError`、#433）、例外を握りつぶさず、`status="incomplete"` にし、その点で端の値か選択肢を取った次元の名前を `unresolved` に入れ、例外の型と文を `failures`（`TuneMemoryEstimate` の欄、文字列の tuple）に入れる。`envelope` は評価できた点の最大である。
+   - **閉じない入力は `incomplete`**（DC1）: `memory_role` が `None` の次元（provider の閉じた集合に無い名前。`histogram_pool_size` のように LightGBM が受け付ける名前も含む）、`max_bin_by_feature` のように候補を作れない次元は、その名前を `unresolved` に入れて `status="incomplete"` にする。device は対応方針 6 の判定で扱う。`envelope` は残りの点で計算した最大で、上限ではないことを docstring に書く。
+   - 範囲は次の 1 round だけである。その round の後の境界の拡張は見積もらない（`expand_boundary` が有効なら docstring に書く）。
+   - **study も trial も属性も書かない**: 見積もりは study・trial・study と trial の属性を書かず、Model の状態（fit 結果、tune 結果、持っている study）を変えない。study は tune と同じ `locate_study`（`load_stored_study`）で探し、tune なら study を作る場合も、計画だけして作らない。URL の storage を開くと、Optuna が SQLite のファイルを作り、空のデータベースに schema を作りうる。これは今の `read_study_lineage` にもある副作用で（同じ `load_stored_study` を通る）、見積もりの docstring に書き、`read_study_lineage` の docstring にも同じ文を足す。storage を一切変えないことは約束しない。呼び出し側は、storage のファイルが無いときに呼ばないことでこれを避けられる（LizyStudio が `read_study_lineage` を呼ぶ前と同じ扱い）。
+   - **計画の例外と場合分けは tune と同じ**: Model が study を持たず storage も無い `resume=True` は、tune と同じ `TUNING_FAILED`。storage の中に study が無い `resume=True` は、tune と同じく新しい study の round 1 として計画する。開いた round と違う `n_trials` などは同じ `CONFIG_INVALID`。
+5. **`Model.tune(..., memory_budget_bytes: int | None = None)`**:
+   - `None`（既定）: 今と同じ。H-0140 の警告と、warnings filter で例外にする道も今と同じ。
+   - 正の `int`: 各 trial で、学習の前に（`check_resources` と同じ位置で）provider の `estimate_memory` を呼び、`estimate_bytes > memory_budget_bytes`（等しいときは通す）なら学習しない。見積もりが例外になったときも学習しない（例外の型によらず、`catch=` の外の `TypeError` なども）。どちらも trial は `LizyMLError(code=TUNING_FAILED)` で失敗させ、今の `catch=` の経路で FAIL として記録し、`memory_refused_this_call` に数える。例外の文と `event='tune.trial.memory_refused'` の log には `reason` と予算を書き、`reason` は `over_budget`（見積もり、`num_leaves` も書く）、`assessment_failed`（見積もりの例外の型と文を書く。見積もりと葉の数は無い）、`device_not_cpu`（対応方針 6 (b)。確定した device の値を書く）のどれかである。study には何も足さない（trial の `user_attrs` にも書かない。読む側が無いため、実測を参照）。
+   - 0 以下、`bool`、`int` でない値は、round を始める前に `CONFIG_INVALID`。
+   - 予算があり、provider が `MemoryEstimateProvider` でないか、見積もれない adapter（LightGBM でない）なら、round を始める前に `CONFIG_INVALID`（黙って判定しない、DC1）。この検査と対応方針 6 (a) の device の検査は、計画が trial を走らせるとき（`plan.runs_optimize`）だけ行う。走る trial が無い round（残りが 0 の開いた round など）は、予算があっても今と同じに閉じる。予算の値の検査（上の行）は常に行う。
+   - round に COMPLETE の trial が無く H-0128 の `TUNING_FAILED` になるとき、その context に 2 つの key を足す。`memory_refused_this_call`（この呼び出しの中で予算が拒否した trial の数）と `memory_budget_bytes`（この呼び出しの値）で、予算の無い呼び出しでも `0` と `None` で足す（既存の key は変えず、足すだけ）。どちらもこの呼び出しのことだけを表し、round の履歴を表さない。拒否した trial は study では普通の FAIL なので、前の process で拒否した trial は数に入らない。前の process が全ての trial を拒否して残りの trial が無い開いた round を resume すると、この呼び出しは trial を走らせずに round を閉じ、`memory_refused_this_call == 0` で `TUNING_FAILED` になる。これを docstring に書く。
+   - 予算は study にも round の記録にも書かない。resume のたびに変えてよく、開いた round を違う予算で再開しても拒否しない（`_refuse_changed_argument` の対象にしない）。
+6. **H-0140 が残した問い**:
+   - 保守性と受け入れの使い方: 予算は H-0140 の見積もり（学習が足す CPU のメモリ）と比べる。process 全体の RSS の上限ではない（isotonic の校正と process の基礎の分を含まず、#423 の表の全ての行で process 全体の最大 RSS が見積もりより大きい）。`incomplete` の包絡は、ジョブ全体の開始前の判定を通す根拠にならない。呼び出し側（Studio）は、開始前に拒否するか、方針が許すなら trial ごとの予算だけに頼って始めるかを選ぶ。`complete` の包絡が予算を超えるときは、ジョブを控えめに拒否する根拠になるが、sampler がその点を引くことは示さない。予算の既定値（4 GiB）は Studio が決める。これらを docstring と BLUEPRINT に書く。
+   - 別名: `finalized` が adapter の `_build_params` を通すので、LightGBM が見るとおりに解決される。テストで `num_leaves` の別名を確かめる。
+   - device: LightGBM は `device_type` を `device` という別名でも受け付ける。tune の目的関数は `model.params`・round の固定値・sample した値を名前の正体で重ねて勝った綴りを残し（`overlay_params`、`lizyml/core/_model_factories.py`）、adapter の `_build_params` も綴りを残す。そのため device は provider の 1 つの関数が、名前を `LGBM_CANONICAL_NAME` で正体に直して決める。device の名前がどの層にも無いときだけ CPU とし、値が `"cpu"` でなければ（`gpu`・`cuda`・知らない値）CPU でない。見積もり（CPU のメモリ）は CPU でない学習を対象にしない。`estimate_memory` はそのまま CPU の見積もりを返す。tune では、この関数を 2 か所で使う。
+     - (a) 候補の点を組み立てる前に、round で到達しうる device の値を宣言された層から決める。sample する次元に device があればその選択肢の全て（categorical でない device の次元は、到達しうる値を決められないので CPU でない値として扱う）、無ければ round の固定値、それも無ければ `model.params` の値、どこにも無ければ CPU である（上の層が下の層を隠し、CPU だけの次元は下の層の GPU を隠す）。CPU でない値が 1 つでもあれば、包絡は `unresolved` に `device_type` を入れ、予算があるときは round を始める前（round の記録を書く前）に `CONFIG_INVALID` にする。この判定は候補の点の組み立てを通らないので、ほかの理由の組み立ての失敗（例えば `validation_ratio=0`、#434）に隠されない。
+     - (b) trial ごとに、学習の前に、その trial の確定したパラメーターで同じ関数を呼ぶ。予算があり CPU でなければ、予算を超えた trial と同じく学習せずに FAIL にする（(a) の宣言の判定から漏れた値の守り。今の経路では (a) を通った round の trial の device は CPU なので、(b) は (a) の欠陥に対する守りである）。
+   - `histogram_pool_size`: LightGBM の histogram の cache を小さくするだけなので、見積もりは上限のまま（固定値は読まない）。探索の次元にした場合は provider の閉じた集合に無いので、保守的に `incomplete` にする（集合に足すのは、必要になったときの provider の変更）。
+   - Config と生成コードへの伝搬: 予算は実行時の引数なので、どちらにも入らない。
+7. **層**: 公開の型は `core/types`、LightGBM の知識は provider、組み立ては Facade（`Model`）と tune の mixin。#366 の規則（具体の型での分岐は Facade だけ）に従い、`isinstance(provider, MemoryEstimateProvider)` は Facade 側で判定する。
+
+### 互換性
+
+- 公開 API が増える（2 つのメソッド、2 つの型、`tune` の引数）。既存の呼び出しは、round に COMPLETE の trial が無いときの `TUNING_FAILED` の context に 2 つの key が足される（`0` と `None`）ほかは変わらない。保存の形式、Config、`FitResult`、`TuningResult`、`TrialResult`、生成コードは変わらない。
+- study の中身は変わらない。拒否した trial は、ほかの理由で失敗した trial と同じ FAIL として残る。trial ごとに拒否を機械で読む方法は、この Proposal では作らない（log と例外の文だけ）。`TUNING_FAILED` の context が示すのは、この呼び出しで予算が拒否した trial の数だけである。`trial_states` と `n_trials` は round 全体を数えるので、両者を比べても「この呼び出しの全ての trial が予算で拒否された」とは決められず、前の process の拒否も分からない。
+- 拒否した trial は FAIL で、`n_trials` を 1 つ使い、TPE は学ばない（Optuna 5.0.0 のソース）。予算が厳しいと、COMPLETE の trial が少ない round になる。
+- `resource_warning` は provider の見積もりと同じ評価を通すように書き直すが、警告の文と閾値は変えない。
+
+### 代替案
+
+- **fit にも予算を付ける**: 対称だが、fit は `estimate_memory` で先に確かめられる。管理者が退けた（判断 1）。
+- **予算を Config に入れる**（`tuning` の節）: resume で変えられ、目的関数の同一性にも入らないが、Config・生成コード・保存の形式への伝搬を決める必要がある。管理者が退けた。
+- **拒否した trial を PRUNED にする**: TPE が学ぶ（Optuna 5.0.0 のソースで PRUNED は分布に入る）が、PRUNED は「途中で打ち切った」の意味で、score の扱いも違う。管理者の判断の「失敗として記録」に合わない。
+- **拒否を `TrialResult` に足す**: `TrialResult` は `tuning_history.json` に保存されるので、保存の形式が変わる。採らない。
+- **trial の `user_attrs` に理由を書く**: Optuna 3 以後は失敗の理由を保存しないので、trial ごとに読める唯一の場所だが、今の LizyML にも `read_study_lineage` にも読む側が無く、書くだけになる（DC4）。読む API と一緒に、必要になったときに別の Proposal で扱う。
+- **包絡を標本で作る**（多数の trial を引いて最大を取る）: 端の点を外しうるので上限にならない。端の点の直積を、trial と同じ経路で評価する。
+- **見積もりの API を返り値なしで済ませ、警告の閾値を引数にする**: 呼び出し側は数値を得られず、tune の包絡も作れない。
+
+### 受け入れ基準（テスト観点）
+
+1. **fit の見積もりが fit と同じ**: `estimate_memory(params=…)` が、同じ `params` の `fit` が `check_resources` に渡す評価と等しい。`num_leaves` の別名、`linear_tree` on、`num_class`、`max_bin_by_feature`、`auto_num_leaves` の on と off で確かめる。spy で `lgb.train` と `lgb.Dataset` が呼ばれないことを確かめる。Model の状態が変わらない。
+2. **tune の包絡が通常の trial を上から抑える**: 既定の空間の binary・multiclass・regression で `status == "complete"`、`unresolved == ()`、`waiting_trials == 0`。同じ設定の tune（予算なし、学習を差し替え）の全ての trial の見積もりが `envelope.estimate_bytes` 以下で、包絡の最大の点（端の点）に等しい trial を作ると等しい。`max_depth` の範囲が 0 以下を含むときは 131072 を基にした葉の数が包絡に入る。`step` のある次元（`auto_num_leaves: false` で `num_leaves` の [16, 64]、step 16）で、包絡がその上端の trial の見積もりと等しい。
+3. **閉じない入力と評価できない点、device**: provider の集合に無い数値の次元（`histogram_pool_size`）、`max_bin_by_feature` の次元で `status == "incomplete"` になり、その名前が `unresolved` にある。`max_depth` の範囲 [3, 1024] では上端の点が `OverflowError` になり、`incomplete`、`unresolved` に `max_depth`、`failures` に例外の型がある。`early_stopping_rounds` の選択肢 `[None, 40]` で、`None` の点の失敗が `failures` に入り、40 の点は評価される。device: `model.params` の `device_type="gpu"`、別名 `device="cuda"`（`model.params` と round の固定値のそれぞれ）、`cpu` と `gpu` を選択肢に持つ `device` の次元で、`unresolved` に `device_type` が入る。`model.params` の `device_type="gpu"` を round の固定値の `device_type="cpu"` が、また選択肢が `["cpu"]` だけの `device` の次元が隠すときは `complete`。固定値の `device_type="gpu"` と `validation_ratio` の範囲 [0, 0.3] の組み合わせでも、`unresolved` に `device_type` が入る（0 の点の失敗は `failures` に入る）。int の `device` の次元 [1, 2] でも `unresolved` に `device_type` が入る。固定値の `n_estimators=-1` と `max_depth` の範囲で、round 数が 1 未満の点が `failures` に入り `incomplete` になる。走る trial の無い round では、固定値の `device_type="gpu"` があっても `complete`、`envelope is None`。
+4. **次の round の範囲と WAITING の trial**: 境界の拡張で広がった round、開いた round（記録した範囲）、引き継いだ範囲のそれぞれで、包絡がその round の有効な範囲から計算される。次の round が trial を走らせる study に WAITING の trial があると（前の round の番号でも）、`status == "incomplete"` で `waiting_trials` がその数である。走る trial の無い round では、WAITING の trial があっても `complete`、`envelope is None`。
+5. **study を書かない、計画は tune と同じ**: 既存の study（SQLite）で、見積もりの前後で study・trial・属性の表の中身が同じ。storage に study が無いとき、見積もりの後も study が無い（`get_all_study_summaries` が空）。Model の状態が変わらない。Model が study を持たず storage も無い `resume=True` は `TUNING_FAILED`、storage に study が無い `resume=True` は round 1 の見積もりを返す（どちらも tune と同じ）。
+6. **予算**: 予算を超える trial は学習せず（spy）、FAIL で、`event='tune.trial.memory_refused'` が log に出て、study の表には予算なしの FAIL の trial と同じものだけが残る。等しい見積もりは通る。全ての trial が拒否された round は `TUNING_FAILED` で、context に `memory_refused_this_call` と `memory_budget_bytes` がある。予算なしの呼び出しの同じ `TUNING_FAILED` では `memory_refused_this_call == 0`、`memory_budget_bytes is None`。一部だけ拒否した round は COMPLETE の trial から最良を選ぶ。拒否の後で process が止まった round（RUNNING の trial が無く残りの trial も無い開いた round）を、別の予算で、また予算なしで resume すると、round は H-0128 どおり閉じて `TUNING_FAILED` になり、`memory_refused_this_call == 0` である。trial ごとの device の守り: (a) を通った後に trial の確定したパラメーターへ `device_type="gpu"` を差し込む試験用の経路（provider の確定を差し替える）で、その trial は学習せず（spy）FAIL になり、log の `reason` が `device_not_cpu` で、`memory_refused_this_call` に数えられる。見積もりの例外: 予算があり provider の見積もりが `catch=` の外の例外（`TypeError`）を出すように差し替えると、その trial は学習せず FAIL になり、log の `reason` が `assessment_failed`、`memory_refused_this_call` に数えられ、tune は止まらずに残りの trial を走らせて round を閉じる。
+7. **入力と capability の検査**: 0、負、`True`、`float`、文字列の予算は round の前に `CONFIG_INVALID`。予算があり provider が capability を持たない（テスト用の provider）とき、また受け入れ 3 の device の場合のうち CPU でない値に到達しうるとき（固定値の `device_type="gpu"` と `validation_ratio` の範囲 [0, 0.3] の組み合わせ、int の `device` の次元を含む）、round の記録を書く前に `CONFIG_INVALID`。走る trial の無い開いた round では、予算と固定値の `device_type="gpu"` があっても `CONFIG_INVALID` にならず、round は今と同じに閉じる。capability を持たない provider では、`estimate_memory` と `estimate_tune_memory` も `CONFIG_INVALID`（`reason: "memory_estimate_unsupported"`）を出す。走る trial が無い round では `envelope is None`、`n_candidates == 0`。
+8. **既定は変わらない**: `memory_budget_bytes=None` の tune は、H-0140 の警告のテストと warnings filter のテスト（`tests/test_estimators/test_h0140_memory_warning.py`）をそのまま通す。
+9. **resume**: 予算を変えて開いた round を再開しても拒否されず、study の記録に予算が無い。
+10. **文書**: BLUEPRINT の公開 API と tune の節、CHANGELOG、`docs/proposal_dispositions.toml` の行（specified、anchors）。
+
+### レビューの停止基準
+
+受け入れ基準と、互換性に書いた主張が正しいかを見る。見積もりの式と係数の精度、GPU の見積もり、isotonic の校正の見積もり、Studio の予算の既定値、fit の予算、Config への追加は、次の round に進む理由にならない。WAITING の trial の扱い（`incomplete` にするだけで、Optuna がそれをどう実行するかは模さない）、storage を開くときの Optuna の初期化、別の issue に回した今の tune の欠陥（#432・#433・#434）も、次の round に進む理由にならない。
+
+### Proposal レビュー
+
+- **round 1**（`h0150-proposal-review`、`61a0353`、CHANGES_REQUESTED）: major 6 件。(1) 包絡の端の点が評価できない場合（`max_depth` 1024 の `OverflowError`、`early_stopping_rounds` の `None` の選択肢）の規則が無い → 評価が例外になった点は `incomplete` にし `failures` に記録、categorical は全ての選択肢を候補にした。(2) WAITING の trial の固定値は記録した範囲の外でありうる → 候補に足した。(3) device は別名 `device` と上書きがある → 確定したパラメーターの正式名で provider が判定し、round の記録の前に候補の点で確かめるようにした。(4) 拒否の数は resume をまたいで復元できない → `memory_refused_this_call` と定義した。(5) `load_stored_study` は study が無くても SQLite のファイルを作りうる、storage に study が無い `resume=True` は拒否でなく新しい study → 読み出し専用の `sqlite3` で先に確かめる探し方と、tune と同じ場合分けを書いた。(6) census の母集団は一様でなく設定した分布（`learning_rate` は対数一様）→ 書き直した。レビューの環境には pandas・LightGBM・Optuna が無く、census の再実行と Optuna のソースの確認はできなかった（JSON の集計と 24/900 は確かめた）。
+- **round 2**（`h0150-proposal-review`、`9f11b9b`、CHANGES_REQUESTED）: major 6 件、minor 1 件。(1) WAITING の trial の固定値は目的関数の格子で丸められるので、生の値では包絡が trial より小さくなりうる。(2) 閉じた round の後に残った WAITING の trial は次の round で走り、前の round の番号のまま記録される。(3) `finalized` は別名 `device` の綴りを残すので、`device_type` の名前だけでは引けない。(4) 候補の点の組み立ての失敗（`validation_ratio=0`）が、宣言された GPU の device を round の記録の後まで隠す。(5)(6) `sqlite3` の読み出し専用の確かめは URL の形を正しく解釈できず、その後の Optuna の読み込みも書き込みできるまま。(7) 互換性の文が拒否の数の示す範囲を言い過ぎている。(1)(5)(6) は round 1 の修正の欠陥なので、CONTRIBUTING の停止ルールで管理者に戻した。
+- **ループの分析**（`h0150-loop-analysis`、`9f11b9b`、1 round の批評）: 管理者の求めで、ループそのものを Codex に分析させた。round 2 の指摘のうち中心は device の 2 件（3・4）で、(1)(5)(6) は周辺、(2) は今の develop の欠陥、(7) は診断の書き方である。原因は 2 つの約束の範囲が開いていたこと（「Optuna が実行しうる全ての trial を上から抑える」「SQLite に一切触れない」）で、約束を狭める案 A を限界つきで採ることを勧めた。
+- **管理者の判断（2026-11-27、#423 issuecomment-7207395926）**: 案 A を限界つきで採る。包絡の `complete` は次の round の有効な範囲から sample される通常の CPU の trial に限り、格子は目的関数と同じにし、WAITING の trial があれば `incomplete`（`waiting_trials`）にする。device は provider の 1 つの関数が正式名で決め、候補の組み立ての前に宣言された層で 1 回、trial ごとに 1 回使う。storage の約束は study・trial・属性を書かないことだけにし、`sqlite3` の確かめをやめて今の探し方を使う（SQLite のファイルと schema を作りうることを書く）。`incomplete` の包絡は開始前の判定を通さないことを書く。拒否の数はこの呼び出しのことだけを表す。改訂を 1 round（この run の最後の round 3）だけレビューし、そこで修正の欠陥が出るか run が尽きたら管理者に戻す。今の tune の欠陥（round をまたぐ WAITING の trial、`max_depth` 1024 の `OverflowError`、受け入れて組み立てで失敗する選択肢）は、確かめてから別の issue にする。3 つとも develop `fc113c9` で再現し、#432・#433・#434 に起票した。
+- **round 3**（`h0150-proposal-review`、`9681e8f`、この run の最後、CHANGES_REQUESTED）: major 3 件、minor 5 件。round 2 の device の 2 件は解消したと確かめた。(1) 端の点の規則は round 数が 1 未満の点で成り立たない（固定値の `n_estimators=-1`）→ 確定した round 数か葉の数が 1 未満の点は評価できない点にした。(2) 数値の device の次元には選択肢が無い → CPU でない値として扱う。(3) WAITING の trial に GPU を入れる受け入れは trial ごとの守りを通らない → 確定したパラメーターに差し込む試験用の経路にした。(4) 走る trial の無い round の device の扱い → 見積もりは計画の直後に返し、予算つきの tune は今と同じに閉じる。(5) 拒否の数が示す範囲 → 互換性の文を直した。(6) 見積もりの例外の診断 → `reason` を 3 つに分け、`memory_refused_this_call` に数えることにした。(7) 受け入れの入力が今の検査を通らない → `auto_num_leaves: false` と `histogram_pool_size` にした。(3)(6) は round 2 の修正から出た指摘で、run も尽きたので管理者に戻した。
+- **管理者の判断（2026-11-27、#423 issuecomment-7207668166）**: 8 件を本文で直し、loop 監視（relational）の後に 1 round の確認（delta check）を行う。APPROVE と CI 緑で HISTORY の PR を merge し、CHANGES_REQUESTED なら再び管理者に戻す。

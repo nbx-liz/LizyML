@@ -1,0 +1,3 @@
+credit-g (binary, 1000 rows, 20 features): 300 trials; max 2.54 GiB; > 1 GiB: 27/300; > 2 GiB: 3/300; > 4 GiB: 0/300; > 8 GiB: 0/300
+vehicle (multiclass, 846 rows, 18 features): 300 trials; max 12.82 GiB; > 1 GiB: 84/300; > 2 GiB: 52/300; > 4 GiB: 24/300; > 8 GiB: 10/300
+diamonds (regression, 53940 rows, 9 features): 300 trials; max 3.30 GiB; > 1 GiB: 27/300; > 2 GiB: 10/300; > 4 GiB: 0/300; > 8 GiB: 0/300
