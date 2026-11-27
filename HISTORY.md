@@ -18036,7 +18036,7 @@ Firing rate: 20/20 of the registry rows shipped at develop 4b3ca6a are admitted 
    - normalise の順、params の無いときに返る道、LightGBM を使う校正（`LGBM_BACKED_CALIBRATORS`）の道は変えない。
    - 登録されていない method は、今の生の `KeyError` から `CALIBRATION_NOT_SUPPORTED` に変わる。校正の欄が実際に検証される入力では、`calibration.method` が `Literal` で 3 つに限られるので、この道には届かない。校正の欄が検証されない入力では届く。それは次の 2 つである。
      - 作り済みの `LizyMLConfig`（`model_construct`、代入、`model_copy(update=...)` で作ったものを含む）。`Model` はこれを版だけ確かめて受け取り（`core/model.py:144`）、そのまま事前検査に渡す（`core/model.py:278`）。
-     - Python の dict の校正の欄に置いた、`CalibrationConfig.model_construct(...)` の instance。loader はそれを複写して `LizyMLConfig.model_validate` に渡す（`config/loader.py:150`、`:282`）。pydantic の既定（`revalidate_instances="never"`）は入れ子の instance を検証し直さないので、知らない method が残る。
+     - Python の dict の校正の欄に置いた、作り済みの `CalibrationConfig` の instance（例: `CalibrationConfig.model_construct(...)`、`CalibrationConfig().model_copy(update=...)`）。loader はそれを複写して `LizyMLConfig.model_validate` に渡す（`config/loader.py:150`、`:282`）。pydantic の既定（`revalidate_instances="never"`）は入れ子の instance を検証し直さないので、知らない method が残る。
    - この変化を CHANGELOG に書く。
 6. **テストの移し替え**: 登録の全てを回すテストは、回す数を減らさずに公開の操作へ移す。
    - `test_metric_requires_proba.py` は `metric_names()` を回す。
@@ -18095,7 +18095,7 @@ Firing rate: 20/20 of the registry rows shipped at develop 4b3ca6a are admitted 
   - 公開の具象クラスと、その import の道。
   - 保存の形式と、保存されるクラス（adapter、`CalibrationResult` の `c_final` の校正器）の定義の場所。
   - 既存の artifact の読み込み。登録は pickle に入らない。
-- **Facade の 1 つの道**: 登録されていない method の校正の事前検査は、生の `KeyError` から `CALIBRATION_NOT_SUPPORTED` になる（上の 5）。校正の欄が検証されない入力（作り済みの `LizyMLConfig`、dict の中の `model_construct` の instance）で届く。
+- **Facade の 1 つの道**: 登録されていない method の校正の事前検査は、生の `KeyError` から `CALIBRATION_NOT_SUPPORTED` になる（上の 5）。校正の欄が検証されない入力（作り済みの `LizyMLConfig`、dict の中の作り済みの `CalibrationConfig` の instance。例: `model_construct`、`model_copy(update=...)`）で届く。
 
 ### 代替案
 
@@ -18209,3 +18209,5 @@ Firing rate: 20/20 of the registry rows shipped at develop 4b3ca6a are admitted 
   - (5) 環境の制約。
   - (1)(2) は round 2 の修正から出た指摘で、run も尽きたので管理者に戻した。
 - **管理者の判断（2026-11-27、#366 issuecomment-7211722175）**: 4 件を本文で直し、loop 監視（relational）の後に 1 round の確認（delta check）を行う。APPROVE と CI 緑で HISTORY の PR を merge し、CHANGES_REQUESTED なら再び管理者に戻す。
+- **delta check**（`h0131-proposal-delta`、loop round 4、`feee6b1`、CHANGES_REQUESTED）: major 1 件。dict の中の校正の Config の instance は `model_construct` だけでなく `model_copy(update=...)` で作ったものも事前検査に届く → 2 か所を「作り済みの `CalibrationConfig` の instance（例: `model_construct`、`model_copy(update=...)`）」にした。
+- **管理者の判断（2026-11-27、#366 issuecomment-7211942787）**: 2 か所の文言を直し、loop 監視（relational）の後にもう 1 round の確認（loop round 5）を行う。APPROVE と CI 緑で merge し、CHANGES_REQUESTED なら再び管理者に戻す。
