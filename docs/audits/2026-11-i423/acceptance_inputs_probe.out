@@ -1,0 +1,34 @@
+[run-exclusive] h0150-probe starting; load was 5.39
+run-heavy: pgid=13 (stop with: kill -- -13)
+[W 2026-11-27 18:10:34,037] Trial 0 failed with parameters: {'learning_rate': 0.07744067519636624, 'early_stopping_rounds': None} because of the following error: TypeError("int() argument must be a string, a bytes-like object or a real number, not 'NoneType'").
+Traceback (most recent call last):
+  File "/home/rem/repos/LizyML/.venv/lib/python3.12/site-packages/optuna/study/_optimize.py", line 206, in _run_trial
+    value_or_values = func(trial)
+                      ^^^^^^^^^^^
+  File "/home/rem/repos/LizyML/lizyml/tuning/tuner.py", line 514, in _recording
+    return objective(trial)
+           ^^^^^^^^^^^^^^^^
+  File "/home/rem/repos/LizyML/lizyml/core/_model_tuning.py", line 737, in objective
+    tc = self._build_train_components(
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/rem/repos/LizyML/lizyml/core/model.py", line 745, in _build_train_components
+    esr = effective_early_stopping_rounds(cfg, tp)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/rem/repos/LizyML/lizyml/core/_model_factories.py", line 711, in effective_early_stopping_rounds
+    return int(overrides["early_stopping_rounds"])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: int() argument must be a string, a bytes-like object or a real number, not 'NoneType'
+[W 2026-11-27 18:10:34,037] Trial 0 failed with value None.
+event='trial.failed' trial=0 state=FAIL reason=TypeError: int() argument must be a string, a bytes-like object or a real number, not 'NoneType'
+- fixed n_estimators=-1: ran states=['complete', 'complete'] trains=4
+- early_stopping_rounds [None, 40]: refused TUNING_FAILED reason=None trains=0: Optuna study failed: int() argument must be a string, a bytes-like object or a real number, not 'NoneType'
+- validation_ratio [0, 0.3] + fixed device_type=gpu: ran states=['complete', 'complete'] trains=4
+- validation_ratio [0, 0.3] (cpu): ran states=['complete', 'complete'] trains=4
+- int device dimension [1, 2]: ran states=['complete', 'complete'] trains=4
+- device categorical [cpu, gpu]: ran states=['complete', 'complete'] trains=4
+- fixed device=cuda (alias): ran states=['complete', 'complete'] trains=4
+- histogram_pool_size dimension: ran states=['complete', 'complete'] trains=4
+- stepped num_leaves [16, 64] step 16, auto_num_leaves false: ran states=['complete', 'complete'] trains=4
+- max_bin_by_feature dimension: refused CONFIG_INVALID reason=invalid_choice trains=0: tuning.optuna.space: Categorical dim 'max_bin_by_feature' has invalid choice at index 0: got [16] (type=list). Each choice must be a plain Python scalar (str, i
+- max_depth [3, 1024]: ran states=['complete', 'complete'] trains=4
+[run-exclusive] h0150-probe finished in 1s, exit 0
