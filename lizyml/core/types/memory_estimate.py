@@ -55,7 +55,9 @@ class TuneMemoryEstimate:
             ``None`` when the round runs no trial.
         unresolved: Names of dimensions whose bound could not be decided
             (``device_type`` when the device cannot be decided).
-        waiting_trials: WAITING trials of the study the next round would run.
+        waiting_trials: Every WAITING row in the target study, whichever round
+            it belongs to, and also when the next round runs no trial (then
+            it does not change ``status``).
         round: The number of the round estimated.
         n_candidates: How many candidate points were evaluated.
         failures: ``"<ExceptionType>: <message>"`` of each point whose

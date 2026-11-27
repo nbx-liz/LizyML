@@ -142,12 +142,21 @@ def test_a_changed_open_round_n_trials_is_the_same_refusal(storage: str) -> None
 # --- finding 6: warnings keep their attribution ------------------------------------
 
 
-def _warned(match: str, call: Any) -> list[warnings.WarningMessage]:
+def _warned(
+    match: str, call: Any, *, at_call: bool = False
+) -> list[warnings.WarningMessage]:
+    """The warnings matching *match*. With *at_call*, each must name this
+    file and the line of the single-line lambda *call*, not only the file."""
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         call()
     hits = [w for w in caught if match in str(w.message)]
     assert hits, f"no warning matching {match!r}"
+    if at_call:
+        line = call.__code__.co_firstlineno
+        assert [(Path(w.filename).name, w.lineno) for w in hits] == [
+            (Path(__file__).name, line)
+        ]
     return hits
 
 
@@ -160,9 +169,11 @@ def test_the_open_round_n_trials_warning_names_the_caller(storage: str) -> None:
         return Model(edge_config(n_trials=ROUND_2_TRIALS + 4), data=frame())
 
     kw: dict[str, Any] = {"resume": True, "storage": storage, "study_name": "s"}
-    est = _warned("is ignored", lambda: model().estimate_tune_memory(**kw))
+    est = _warned(
+        "is ignored", lambda: model().estimate_tune_memory(**kw), at_call=True
+    )
     assert _from(est) == [Path(__file__).name]
-    tuned = _warned("is ignored", lambda: model().tune(**kw))
+    tuned = _warned("is ignored", lambda: model().tune(**kw), at_call=True)
     assert _from(tuned) == [Path(__file__).name]
 
 
@@ -186,9 +197,13 @@ def test_the_version_drift_warning_names_the_caller(
     _drift(monkeypatch)
     kw: dict[str, Any] = {"resume": True, "storage": storage, "study_name": "s"}
     msg = "other library versions"
-    est = _warned(msg, lambda: Model(fast_config(), data=df).estimate_tune_memory(**kw))
+    est = _warned(
+        msg,
+        lambda: Model(fast_config(), data=df).estimate_tune_memory(**kw),
+        at_call=True,
+    )
     assert _from(est) == [Path(__file__).name]
-    tuned = _warned(msg, lambda: Model(fast_config(), data=df).tune(**kw))
+    tuned = _warned(msg, lambda: Model(fast_config(), data=df).tune(**kw), at_call=True)
     assert _from(tuned) == [Path(__file__).name]
     # restore_tuning reaches the same check one frame shallower; it keeps
     # naming the tuning module, as it did before the planning moved.

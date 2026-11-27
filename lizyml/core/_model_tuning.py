@@ -18,8 +18,7 @@ refused call changes neither the study nor the Model (INV-R4).
 from __future__ import annotations
 
 import warnings
-from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -27,10 +26,21 @@ from lizyml.core._model_factories import (
     get_outer_n_splits,
     get_provider,
 )
-from lizyml.core._model_metrics import _DEFAULT_METRICS
 from lizyml.core._model_state import TuningState
 from lizyml.core._resource_warning import WarningLatch, check_resources
 from lizyml.core._trial_inputs import trial_inputs
+from lizyml.core._tune_budget import (
+    TuneBudget,
+    admit_budget,
+    check_trial,
+    validate_budget_value,
+)
+from lizyml.core._tune_round_close import close_round
+from lizyml.core._tune_support import (
+    _first_metric,
+    _restored_on_failure,
+    _trial_errors,
+)
 from lizyml.core._tuning_admission import (
     validate_tune_args,
 )
@@ -51,9 +61,7 @@ from lizyml.core.types.tuning_result import (
     TuningResult,
 )
 from lizyml.data.fingerprint import compute as fp_compute
-from lizyml.estimators.provider import TrialErrorProvider
 from lizyml.evaluation.evaluator import Evaluator
-from lizyml.metrics.registry import parse_metric_entry
 from lizyml.training.cv_trainer import CVTrainer
 from lizyml.tuning import tuner as _tuner
 from lizyml.tuning.lineage import (
@@ -67,7 +75,6 @@ from lizyml.tuning.lineage import (
 from lizyml.tuning.rounds import assemble_tuning_result, recorded_trial_params
 from lizyml.tuning.search_space import suggest_params
 from lizyml.tuning.study_lineage import require_stored_study_args
-from lizyml.tuning.trial_failure import round_trial_states, states_text
 from lizyml.tuning.tuner import Tuner
 
 if TYPE_CHECKING:
@@ -86,37 +93,6 @@ if TYPE_CHECKING:
     from lizyml.splitters.base import BaseSplitter
 
 _log = get_logger("model")
-
-
-@contextmanager
-def _restored_on_failure(obj: object, fields: tuple[str, ...]) -> Iterator[None]:
-    """Put *fields* of *obj* back if the block leaves by any exception.
-
-    ``BaseException`` included: a process dying inside the trials must not
-    leave the Model pointing at the failed call's run directory or provider.
-    """
-    saved = [(name, getattr(obj, name)) for name in fields]
-    try:
-        yield
-    except BaseException:
-        for name, value in saved:
-            setattr(obj, name, value)
-        raise
-
-
-def _first_metric(cfg: LizyMLConfig) -> tuple[str | dict[str, Any], str]:
-    """The first metric's config entry and name: what tuning optimises."""
-    first_entry = (cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task])[0]
-    metric_name, _ = parse_metric_entry(first_entry)
-    return first_entry, metric_name
-
-
-def _trial_errors(provider: Any) -> tuple[type[Exception], ...]:
-    """The provider's ``trial_errors()`` when it has the optional
-    :class:`TrialErrorProvider` capability, else none (H-0128)."""
-    if isinstance(provider, TrialErrorProvider):
-        return provider.trial_errors()
-    return ()
 
 
 def _interrupted(plan: RoundPlan) -> int:
@@ -209,6 +185,7 @@ class ModelTuningMixin:
         storage: str | BaseStorage | None = None,
         study_name: str | None = None,
         space: Mapping[str, Any] | None = None,
+        memory_budget_bytes: int | None = None,
     ) -> TuningResult:
         """Run one round of hyperparameter search with optuna (H-0068, H-0072,
         H-0122).
@@ -257,6 +234,18 @@ class ModelTuningMixin:
                 declaration changes is not expanded this round; its
                 distribution kind, ``log`` and choices cannot change within a
                 study. An open round only accepts its recorded space.
+            memory_budget_bytes: Opt-in cap on the extra CPU memory of one
+                trial (H-0150). ``None`` (default) changes nothing. A
+                positive ``int`` refuses, before it trains, each trial whose
+                estimate is over it (equal passes), whose assessment raises,
+                or whose device is not the CPU; the trial is recorded FAIL
+                (``event='tune.trial.memory_refused'`` is logged with its
+                ``reason``). It is compared with the estimate of extra CPU
+                memory, not the process's resident set. It is per call:
+                never stored, and it may change on resume. A round that can
+                reach a non-CPU device, or a provider that cannot estimate,
+                is refused before any write; a round that runs no trial
+                closes as without a budget.
 
         Returns:
             :class:`~lizyml.core.types.tuning_result.TuningResult` with
@@ -282,9 +271,16 @@ class ModelTuningMixin:
             LizyMLError with TUNING_FAILED on study failure, ``resume=True``
                 with neither a held study nor a storage, or a round none of
                 whose own trials completed (H-0128; context ``trial_states``
-                and, when known, ``first_error``).
+                and, when known, ``first_error``; ``memory_refused_this_call``
+                and ``memory_budget_bytes`` describe this call only, so a
+                resumed round whose earlier trials were all refused reports 0).
+            LizyMLError with CONFIG_INVALID for a ``memory_budget_bytes``
+                that is not ``None`` or a positive ``int``, a budgeted round
+                that runs trials but whose provider cannot estimate memory
+                or whose device may not be the CPU.
         """
         cfg = self._cfg
+        budget = TuneBudget(validate_budget_value(memory_budget_bytes))
         # --- Phases A-D: arguments, data, locate and judge the study, plan -----
         # Shared with `Model.estimate_tune_memory` (H-0150 policy 4); they only
         # read, and every refusal of the call is raised in them (INV-R4).
@@ -305,6 +301,14 @@ class ModelTuningMixin:
         base_smart_params = ctx.base_smart_params
         study_payload, round_payload = ctx.study_payload, ctx.round_payload
         held_storage, held_name = ctx.held_storage, ctx.held_name
+        if budget.limit is not None:  # before any write (policy 5, 6a)
+            admit_budget(
+                provider,
+                runs_optimize=plan.runs_optimize,
+                dims=plan.effective,
+                fixed=dict(plan.fixed),
+                base_model_params=base_model_params,
+            )
 
         # --- Phase E: writes, in the §7.1 order --------------------------------
         # A tune that fails -- an exception, a dying process, or a round that
@@ -330,6 +334,7 @@ class ModelTuningMixin:
                 evaluator=Evaluator(task=cfg.task),
                 first_entry=first_entry,
                 metric_name=metric_name,
+                budget=budget,
             )
             _log.info(
                 "event='tune.start' task=%s resume=%s round=%d plan=%s n_trials=%d",
@@ -401,7 +406,9 @@ class ModelTuningMixin:
                     plan.run_n_trials,
                     plan.run_timeout,
                 )
-            self._close_round(study, plan, first_error=tuner.first_error)  # (4)
+            self._close_round(
+                study, plan, first_error=tuner.first_error, budget=budget
+            )  # (4)
 
             # --- Phase F: assemble from the lineage (the commit follows) ---------
             final_trials = study.trials
@@ -597,6 +604,7 @@ class ModelTuningMixin:
         evaluator: Evaluator,
         first_entry: str | dict[str, Any],
         metric_name: str,
+        budget: TuneBudget | None = None,
     ) -> Callable[[Any], float]:
         """Return the optuna objective closure used by ``Tuner``.
 
@@ -610,10 +618,31 @@ class ModelTuningMixin:
         # H-0140: one warning per tune() call (this closure is built once per
         # call); the later trials that fire are logged.
         latch = WarningLatch()
+        limits = budget if budget is not None else TuneBudget()
         n_folds = get_outer_n_splits(cfg)
 
         def objective(trial: Any) -> float:
             trial_params = suggest_params(trial, space)
+            # H-0150 policy 5: refuse before anything of the trial is built.
+            check_trial(
+                limits,
+                provider,
+                space,
+                trial_params,
+                base_model_params=base_model_params,
+                base_smart_params=base_smart_params,
+                fixed=fixed,
+                n_boosters=n_folds,
+                build_components=lambda m, s, t: self._build_train_components(
+                    X,
+                    y,
+                    provider=provider,
+                    model_params=m,
+                    smart_params=s,
+                    training_overrides=t,
+                ),
+                X=X,
+            )
             # The same function the memory estimates use (H-0150).
             merged_model, merged_smart, training_p = trial_inputs(
                 provider,
@@ -695,61 +724,20 @@ class ModelTuningMixin:
         )
 
     def _close_round(
-        self, study: Any, plan: RoundPlan, *, first_error: str | None = None
+        self,
+        study: Any,
+        plan: RoundPlan,
+        *,
+        first_error: str | None = None,
+        budget: TuneBudget | None = None,
     ) -> None:
-        """Write ``lizyml:round:<k>:end`` (write position 4).
-
-        ``completed`` when **the round** holds a COMPLETE trial (its trials
-        are numbered from ``plan.start_trial``), else ``failed`` followed by
-        ``TUNING_FAILED`` (H-0128 policy 1; H-0122 §7.1 looked at the whole
-        study). The Model is left unchanged, and the next ``resume=True``
-        starts a new round. The error reports the round's trial states and,
-        when this call saw one, the first objective error (policy 2).
-        """
-        trials = study.trials
-        complete = any(
-            t.state.name == "COMPLETE" and t.number >= plan.start_trial for t in trials
-        )
-        ended_at = datetime.now(tz=timezone.utc).isoformat()
-        end = (
-            StoredRoundEnd("completed", float(study.best_value), ended_at)
-            if complete
-            else StoredRoundEnd("failed", None, ended_at)
-        )
-        _tuner.write_study_attr(
-            study, end_key(plan.round_number), encode_round_end(end)
-        )
-        if complete:
-            return
-        k = plan.round_number
-        states = round_trial_states(
-            trials, plan.start_trial, interrupted=_interrupted(plan)
-        )
-        first = f" First error: {first_error}." if first_error else ""
-        earlier = (
-            " The study keeps the results of earlier rounds."
-            if any(t.state.name == "COMPLETE" for t in trials)
-            else ""
-        )
-        context: dict[str, Any] = {
-            "round": k,
-            "n_trials": plan.budget_n_trials,
-            "status": "failed",
-            "trial_states": states,
-        }
-        if first_error:
-            context["first_error"] = first_error
-        raise LizyMLError(
-            code=ErrorCode.TUNING_FAILED,
-            user_message=(
-                f"Round {k} ended with no completed trial ("
-                + states_text(
-                    states, n_trials=plan.budget_n_trials, timeout=plan.budget_timeout
-                )
-                + f").{first}{earlier} Check the parameter ranges, then start "
-                f"round {k + 1} with tune(resume=True, space=...)."
-            ),
-            context=context,
+        """Write the round end record (write position 4); see ``close_round``."""
+        close_round(
+            study,
+            plan,
+            first_error=first_error,
+            budget=budget,
+            interrupted=_interrupted(plan),
         )
 
     def _get_tuning_state(self, method: str) -> TuningState:

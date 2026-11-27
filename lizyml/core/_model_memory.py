@@ -177,7 +177,11 @@ class ModelMemoryMixin:
         Raises:
             LizyMLError: ``CONFIG_INVALID`` with ``reason:
                 "memory_estimate_unsupported"`` when the estimator provider
-                cannot estimate; whatever ``fit`` refuses before training.
+                cannot estimate; the refusals ``fit`` raises in the shared
+                assessment inputs (parameters, calibration names, feature
+                names, train components). The estimate does not build the
+                splitter, so a refusal only ``fit`` raises there (for example
+                ``stratified_kfold`` on a regression task) is not mirrored.
         """
         cfg = self._cfg
         provider = require_memory_provider(get_provider(cfg.model))
