@@ -612,8 +612,8 @@ disposition = "specified"
 anchors = ["make_tpe_sampler", "multivariate=True", "constant_liar=True", "ExperimentalWarning", "h0149_tpe_sequences.json"]
 
 [proposals."H-0150"]
-disposition = "pending"
-reason = "Proposed (#423): BLUEPRINT is updated by the implementation PR"
+disposition = "specified"
+anchors = ["estimate_memory", "estimate_tune_memory", "memory_budget_bytes", "MemoryEstimateProvider", "TuneMemoryEstimate"]
 
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.

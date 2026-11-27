@@ -17812,8 +17812,9 @@ Firing rate: 16/16 of the Optuna versions measured in the admitted range (every 
 
 ## H-0150: fit と tune のメモリの見積もりを公開し、tune に opt-in のメモリの予算を足す（#423、LizyStudio#729）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-11-27
+- **決定日**: 2026-11-27
 - **関連**: H-0140（学習の前の警告と見積もりの式）、H-0128（round に COMPLETE が無ければ `TUNING_FAILED`）、H-0122（study の記録）、H-0068（round と境界の拡張）、#423、LizyStudio#729（Studio の守り。予算の既定 4 GiB、P-0118）
 - **スコープ**:
   - `Model.estimate_memory`・`Model.estimate_tune_memory` の追加、`Model.tune` の引数 `memory_budget_bytes`、公開の型（`core/types`）、provider の任意の capability、BLUEPRINT（公開 API・tune の節）、CHANGELOG、`docs/proposal_dispositions.toml`、テスト
@@ -17942,6 +17943,22 @@ Firing rate: unmeasurable before implementation (the argument does not exist yet
 4. **互換性**: `n_trials` は round の予定の trial の数で、`trial_states` は記録された trial を数える、と書いた（delta check の minor）。
 
 #434 の修正が `early_stopping_rounds` の `None` と `validation_ratio` の 0 を登録で拒否するようになったら、受け入れ 3 と 7 のこれらの例は、その修正の PR で、まだ評価できない別の入力に置き換える（#434 に書いた）。
+
+### 実装の記録
+
+管理者の実行の計画（#423 issuecomment-7212982445）に従って、実装を 2 本の PR に分けた。
+
+- **part A**（PR #439、develop に squash merge、`1765bbe`）: 対応方針 1〜4、6 (a) と文書、7。受け入れ 1〜5、8、7 の見積もりの部分。
+  - `Model.estimate_memory`・`Model.estimate_tune_memory`（`lizyml/core/_model_memory.py`・`_model_tune_memory.py`）、型（`lizyml/core/types/memory_estimate.py`）、provider の capability `MemoryEstimateProvider`。
+  - tune の計画（対応方針 4 の「tune と同じ計画の関数」）は、`tune()` の phase A〜D を `lizyml/core/_tune_planning.py` に移して共有した。trial のパラメーターの組み立ては `lizyml/core/_trial_inputs.py` で、目的関数と見積もりが共有する。移した位置の警告は呼んだ側を指すまま（stacklevel を合わせた）。
+  - categorical の次元は全ての選択肢を候補にし、provider の閉じた集合（`memory_check.py` の `MEMORY_INCREASING`・`MEMORY_NONE`・`MEMORY_CHOICES`）に無い名前は `unresolved` にする。集合の `"choices"` には、H-0140 の評価が読むパラメーター（`objective`、`linear_tree`、`num_class`、`categorical_feature`、`forcedbins_filename`、`auto_num_leaves`）を入れた。
+  - `max_depth` の 0 の候補は provider の hook（`memory_candidates`）が出す。失敗した点は点ごとに `failures` に入る。失敗した点の `unresolved` には、`"increasing"` の数値の次元と categorical の次元を入れ、`"none"` の次元の下端は入れない（その次元は包絡を抑えないので、原因は `failures` に残る）。
+  - 実装レビュー: `h0150a-impl-review` round 1（`6e0874e`）で major 9 件（Opus の maker が直した）、round 2（`be72160`）で APPROVE と minor 5 件。CI の最も古い依存の lane で LightGBM 4.4 の文言の違いが 1 件あり、テストの正規表現だけを直して delta check（loop round 3、`351dffc`）で APPROVE。
+- **part B**（この PR）: 対応方針 5、6 (b)、予算つきの 6 (a)。受け入れ 6、9、7 の予算の部分。part A の round 2 の minor 4 件。
+  - `Model.tune(memory_budget_bytes=...)`。値の検査（`lizyml/core/_tune_budget.py` の `validate_budget_value`、`reason: "invalid_memory_budget"`）は常に行う。capability と device の判定（`admit_budget`、`reason: "memory_budget_device_not_cpu"`）は、計画が trial を走らせるときだけ、round の記録を書く前に行う。
+  - trial ごとの判定（`check_trial`）は、目的関数が trial を組み立てる前に、device、見積もり、予算の順で行う。拒否は `LizyMLError(TUNING_FAILED)` で FAIL に記録し、`event='tune.trial.memory_refused'` の `reason` は `over_budget`・`assessment_failed`・`device_not_cpu` のどれかである。trial ごとの device は、trial の重ねたモデルのパラメーター（`trial_inputs` の結果）を provider の `device_is_cpu` が正式名で判定する。
+  - H-0128 の `TUNING_FAILED` の context に `memory_refused_this_call` と `memory_budget_bytes` を足した（`lizyml/core/_tune_round_close.py`）。
+  - `docs/api.md` の `tune` の引数の表にも `memory_budget_bytes` を足した（文書のテストが全ての引数の行を求める）。
 
 ## H-0131: 2 つの registry を宣言的な schema にして helper の中に閉じ、BLUEPRINT §2.1 の 4 つの懸念のうち 3・4 をテストで守る（#366）
 
