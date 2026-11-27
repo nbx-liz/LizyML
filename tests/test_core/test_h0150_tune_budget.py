@@ -8,7 +8,9 @@ trained" is read from the stub's call list.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +22,7 @@ from lizyml import Model
 from lizyml.core import _tune_budget
 from lizyml.core._model_tuning import ModelTuningMixin
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.types.memory_estimate import MemoryEstimate
 from lizyml.estimators.lgbm.adapter import LGBMAdapter
 from lizyml.estimators.lgbm.provider import LGBMProvider
 from lizyml.training.cv_trainer import CVTrainer
@@ -348,58 +351,177 @@ def test_a_budgeted_trial_builds_its_components_once_and_trains_with_them(
         assert trained[i] is built[i]
 
 
-# --- round 2 finding 4: a budget too large to print ---------------------------------
+# --- round 3: the budget's bound (#423 issuecomment-7220835949) ----------------------
 
+#: The largest budget: ``1 <= memory_budget_bytes <= 2**63 - 1``.
+MAX_BUDGET = 2**63 - 1
 #: 4301 digits: ``str()`` of it raises ``ValueError`` under Python's default
-#: integer-string limit (4300 digits).
+#: integer-string limit (4300 digits), which ``digit_limit`` pins.
 HUGE = 10**4300
 BIG = 10**15
 
 
-def test_a_huge_negative_budget_is_config_invalid() -> None:
+@pytest.fixture
+def digit_limit() -> Any:
+    """Pin Python's integer-string limit to its default (4300) and restore it,
+    so a test does not depend on ``PYTHONINTMAXSTRDIGITS`` (round 3 finding 4).
+    Python 3.10 before 3.10.7 has no limit and nothing to pin."""
+    if not hasattr(sys, "set_int_max_str_digits"):
+        yield None
+        return
+    before = sys.get_int_max_str_digits()
+    sys.set_int_max_str_digits(4300)
+    try:
+        yield 4300
+    finally:
+        sys.set_int_max_str_digits(before)
+
+
+class _UnreprValue:
+    """A value whose ``repr`` raises, under any digit limit."""
+
+    def __repr__(self) -> str:
+        raise KeyError("a misbehaving __repr__")
+
+
+# Explicit ids: pytest would build an int parameter's id with ``str()``.
+@pytest.mark.parametrize(
+    "bad",
+    [
+        pytest.param(MAX_BUDGET + 1, id="2**63"),
+        pytest.param(HUGE, id="10**4300"),
+        pytest.param(-HUGE, id="-(10**4300)"),
+        pytest.param([HUGE], id="[10**4300]"),
+        pytest.param(_UnreprValue(), id="unrepr"),
+    ],
+)
+def test_a_budget_outside_the_bound_is_config_invalid(
+    bad: Any,
+    digit_limit: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    train_stub: _Recorder,  # noqa: F811
+) -> None:
+    planned: list[int] = []
+    real_plan = Model._plan_tune
+
+    def spy(self: Any, *a: Any, **k: Any) -> Any:
+        planned.append(1)
+        return real_plan(self, *a, **k)
+
+    monkeypatch.setattr(Model, "_plan_tune", spy)
+    url = _url(tmp_path)
     with pytest.raises(LizyMLError) as err:
-        _tune(_cfg(space=_space(), n_trials=2), memory_budget_bytes=-HUGE)
+        _tune(
+            _cfg(space=_space(), n_trials=2),
+            memory_budget_bytes=bad,
+            storage=url,
+            study_name="s",
+        )
     assert err.value.code is ErrorCode.CONFIG_INVALID
     assert err.value.context["reason"] == "invalid_memory_budget"
+    assert planned == []  # refused before planning
+    assert train_stub.calls == []
+    assert not (tmp_path / "study.db").exists()
     assert "memory_budget_bytes" in str(err.value)
-    repr(err.value)  # the context is printable too
+    repr(err.value)  # the message and the context are printable
 
 
-def test_a_huge_positive_budget_runs(train_stub: _Recorder) -> None:  # noqa: F811
+@pytest.mark.parametrize(
+    ("value", "text"),
+    [
+        pytest.param(HUGE, "<int of 14285 bits>", id="10**4300"),
+        pytest.param(-HUGE, "<-int of 14285 bits>", id="-(10**4300)"),
+        pytest.param([HUGE], "<unprintable list>", id="[10**4300]"),
+        pytest.param(_UnreprValue(), "<unprintable _UnreprValue>", id="unrepr"),
+        pytest.param(MAX_BUDGET + 1, "9223372036854775808 (int)", id="2**63"),
+        pytest.param(1.5, "1.5 (float)", id="float"),
+    ],
+)
+def test_an_invalid_budget_is_rendered_without_raising(
+    value: Any, text: str, digit_limit: Any
+) -> None:
+    with pytest.raises(LizyMLError) as err:
+        _tune_budget.validate_budget_value(value)
+    assert err.value.context["value"] == text
+    assert text in err.value.user_message
+
+
+def test_the_largest_budget_runs(train_stub: _Recorder) -> None:  # noqa: F811
+    assert _tune_budget.validate_budget_value(MAX_BUDGET) == MAX_BUDGET
     result = _tune(
-        _cfg(space=_space(), auto=False, n_trials=2), memory_budget_bytes=HUGE
+        _cfg(space=_space(), auto=False, n_trials=2), memory_budget_bytes=MAX_BUDGET
     )
     assert result.best_params
     assert len(train_stub.calls) == 2 * N_FOLDS
 
 
-def test_a_refusal_under_a_huge_budget_keeps_its_reason(
+def test_a_refusal_under_the_largest_budget_is_printable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     train_stub: _Recorder,  # noqa: F811
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    # Optuna writes repr() of every FAIL trial's error, and the log line and
-    # the trial error text both carry the budget: none of them may raise.
+    # Optuna writes repr() of every FAIL trial's error; the round error keeps
+    # the budget as an int (round 3 finding 5): within the bound, both print.
     _no_probe(monkeypatch)
     _raising_estimate(monkeypatch, TypeError("outside catch="), first_only=False)
     caplog.set_level(logging.INFO)
     cfg = _cfg(space=_space(), auto=False, n_trials=2)
     url = _url(tmp_path)
-    err = _tune_failed(cfg, memory_budget_bytes=HUGE, storage=url, study_name="s")
+    err = _tune_failed(cfg, memory_budget_bytes=MAX_BUDGET, storage=url, study_name="s")
     assert err.context["memory_refused_this_call"] == 2
-    assert err.context["memory_budget_bytes"] == HUGE  # the value, unchanged
+    assert err.context["memory_budget_bytes"] == MAX_BUDGET  # the value, an int
+    assert "budget=9223372036854775807" in err.context["first_error"]
     assert "reason=assessment_failed" in err.context["first_error"]
+    repr(err)
     assert _states(url) == ["FAIL", "FAIL"]
     lines = _refusals(caplog)
     assert len(lines) == 2
-    assert all("reason=assessment_failed" in m and "budget=" in m for m in lines)
+    assert all("budget=9223372036854775807" in m for m in lines)
 
 
-def test_the_refusal_formatter_handles_a_huge_budget(
+class _HostileInt(int):
+    """An ``int`` subclass in range whose printing and comparisons raise."""
+
+    def __repr__(self) -> str:
+        raise KeyError("a misbehaving __repr__")
+
+    def __str__(self) -> str:
+        raise KeyError("a misbehaving __str__")
+
+    def __format__(self, spec: str) -> str:
+        raise KeyError("a misbehaving __format__")
+
+    def __le__(self, other: object) -> bool:
+        raise KeyError("a misbehaving __le__")
+
+
+def test_an_int_subclass_budget_is_used_as_a_plain_int(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    train_stub: _Recorder,  # noqa: F811
+) -> None:
+    # A valid budget always prints: the value is taken as an exact int.
+    plain = _tune_budget.validate_budget_value(_HostileInt(BIG))
+    assert type(plain) is int and plain == BIG
+    _no_probe(monkeypatch)
+    _raising_estimate(monkeypatch, TypeError("outside catch="), first_only=False)
+    cfg = _cfg(space=_space(), auto=False, n_trials=2)
+    url = _url(tmp_path)
+    err = _tune_failed(
+        cfg, memory_budget_bytes=_HostileInt(BIG), storage=url, study_name="s"
+    )
+    assert type(err.context["memory_budget_bytes"]) is int
+    assert "budget=1000000000000000" in err.context["first_error"]
+    repr(err)
+    assert _states(url) == ["FAIL", "FAIL"]
+
+
+def test_the_refusal_formatter_under_the_largest_budget(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    budget = _tune_budget.TuneBudget(limit=HUGE)
+    budget = _tune_budget.TuneBudget(limit=MAX_BUDGET)
     caplog.set_level(logging.INFO)
     with pytest.raises(LizyMLError) as err:
         _tune_budget._refuse(
@@ -409,12 +531,50 @@ def test_the_refusal_formatter_handles_a_huge_budget(
             "the estimate is over the budget",
         )
     assert err.value.code is ErrorCode.TUNING_FAILED
-    assert err.value.context["reason"] == "over_budget"
-    assert "reason=over_budget" in err.value.user_message
-    assert "budget=" in err.value.user_message
+    assert err.value.context == {
+        "reason": "over_budget",
+        "memory_budget_bytes": MAX_BUDGET,
+    }
+    assert "reason=over_budget budget=9223372036854775807" in err.value.user_message
     repr(err.value)  # what Optuna logs for a FAIL trial
     assert budget.refused == 1
     assert len(_refusals(caplog)) == 1
+
+
+def test_a_huge_estimate_is_refused_with_its_bit_length(
+    monkeypatch: pytest.MonkeyPatch,
+    digit_limit: Any,
+    train_stub: _Recorder,  # noqa: F811
+) -> None:
+    # The bound covers the budget, not the provider's estimate: an estimate
+    # too long for str() is still over the budget and must not raise.
+    real = LGBMProvider.estimate_memory
+
+    def huge(self: LGBMProvider, **kw: Any) -> MemoryEstimate:
+        est = real(self, **kw)
+        return dataclasses.replace(est, estimate_bytes=HUGE, num_leaves=-HUGE)
+
+    _no_probe(monkeypatch)
+    monkeypatch.setattr(LGBMProvider, "estimate_memory", huge)
+    err = _tune_failed(
+        _cfg(space=_space(), auto=False, n_trials=2), memory_budget_bytes=BIG
+    )
+    first = err.context["first_error"]
+    assert "reason=over_budget" in first
+    assert "estimate_bytes=<int of 14285 bits>" in first
+    assert "num_leaves=<-int of 14285 bits>" in first
+    assert train_stub.calls == []
+
+
+def test_int_text_is_decimal_within_64_bits_and_a_bit_length_beyond(
+    digit_limit: Any,
+) -> None:
+    assert _tune_budget.int_text(MAX_BUDGET) == "9223372036854775807"
+    assert _tune_budget.int_text(-(2**63)) == "-9223372036854775808"
+    assert _tune_budget.int_text(0) == "0"
+    assert _tune_budget.int_text(2**64) == "<int of 65 bits>"
+    assert _tune_budget.int_text(HUGE) == "<int of 14285 bits>"
+    assert _tune_budget.int_text(-HUGE) == "<-int of 14285 bits>"
 
 
 def test_a_trial_whose_finalized_device_is_not_cpu_is_refused(

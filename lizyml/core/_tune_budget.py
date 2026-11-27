@@ -15,9 +15,12 @@ by its ``device_is_cpu``, and the estimate from its ``estimate_memory``.
 
 ``finalized_device`` is the separate :class:`TrialDeviceProvider` capability:
 only a budget requires it, so the two estimates need only
-:class:`MemoryEstimateProvider`. Every integer the budget formats goes through
-:func:`int_text`, so a budget too long for ``str()`` cannot replace a refusal
-with ``ValueError``.
+:class:`MemoryEstimateProvider`.
+
+The budget's domain is bounded: ``1 <= memory_budget_bytes <= 2**63 - 1``
+(:data:`MAX_MEMORY_BUDGET_BYTES`), so a valid budget always prints. An invalid
+value is rendered by :func:`value_text`, and a provider's estimate (which the
+bound does not cover) by :func:`int_text`; neither can raise.
 """
 
 from __future__ import annotations
@@ -39,7 +42,7 @@ from lizyml.core.train_components import TrainComponents
 from lizyml.core.types.memory_estimate import MemoryEstimate
 from lizyml.core.types.search_dim import SearchDim
 from lizyml.estimators.provider import MemoryEstimateProvider, TrialDeviceProvider
-from lizyml.tuning.trial_failure import describe_exception
+from lizyml.tuning.trial_failure import MAX_TEXT, describe_exception
 
 _log = get_logger("core.tune_budget")
 
@@ -49,23 +52,51 @@ BuildComponents = Callable[
 ]
 
 
-def int_text(value: int | None) -> str:
-    """*value* in decimal, or, when ``str()`` refuses it (Python's limit on
-    integer-string conversion), its sign and bit length. Never raises."""
-    try:
+#: The largest ``memory_budget_bytes``: a signed 64-bit integer.
+MAX_MEMORY_BUDGET_BYTES = 2**63 - 1
+
+#: An ``int`` wider than this many bits is written by its bit length.
+_INT_BITS = 64
+
+
+def int_text(value: int) -> str:
+    """*value* in decimal when it fits in 64 bits, else its sign and bit
+    length. Never raises: ``str()`` of a wide ``int`` can (Python's limit on
+    integer-string conversion), so it is never called for one."""
+    bits = value.bit_length()
+    if bits <= _INT_BITS:
         return str(value)
-    except ValueError:
-        if not isinstance(value, int):  # not reached: None always prints
-            return "<unprintable>"
-        sign = "-" if value < 0 else ""
-        return f"<{sign}int of {value.bit_length()} bits>"
+    sign = "-" if value < 0 else ""
+    return f"<{sign}int of {bits} bits>"
 
 
-def _value_text(value: Any) -> str:
-    """``repr(value)``, with an ``int`` (not a ``bool``) through ``int_text``."""
-    if isinstance(value, int) and not isinstance(value, bool):
-        return int_text(value)
-    return repr(value)
+def value_text(value: Any) -> str:
+    """A rendering of any *value* that never raises.
+
+    An ``int`` (not a ``bool``) goes through :func:`int_text`; anything else
+    is its ``repr`` cut to :data:`MAX_TEXT`. Both carry the type name, and a
+    ``repr`` that raises or returns a non-str gives ``<unprintable TYPE>``.
+    """
+    name = _type_name(value)
+    try:
+        if isinstance(value, int) and not isinstance(value, bool):
+            text = int_text(value)
+            return text if text.startswith("<") else f"{text} ({name})"
+        text = repr(value)
+    except Exception:  # noqa: BLE001 - the rendering must not raise
+        return f"<unprintable {name}>"
+    if not isinstance(text, str):
+        return f"<unprintable {name}>"
+    return f"{text[:MAX_TEXT]} ({name})"
+
+
+def _type_name(value: Any) -> str:
+    """The type name of *value*, cut to :data:`MAX_TEXT`; never raises."""
+    try:
+        name = type.__getattribute__(type(value), "__name__")
+    except Exception:  # noqa: BLE001 - the rendering must not raise
+        return "<unknown type>"
+    return name[:MAX_TEXT] if isinstance(name, str) else "<unknown type>"
 
 
 @dataclass
@@ -98,30 +129,45 @@ class TrialBuild:
 
 
 def validate_budget_value(value: Any) -> int | None:
-    """*value* when it is ``None`` or a positive ``int``; else ``CONFIG_INVALID``.
+    """*value* when it is ``None`` or an ``int`` from 1 to ``2**63 - 1``
+    (:data:`MAX_MEMORY_BUDGET_BYTES`); else ``CONFIG_INVALID`` (``reason:
+    "invalid_memory_budget"``).
 
-    A ``bool`` is not a budget. Runs on every call, before the round starts.
-    The value domain has no upper bound; the message formats any ``int``.
+    A ``bool`` is not a budget. An ``int`` subclass is taken as the exact
+    ``int`` it holds (``int.__int__``, which no subclass can override), so
+    the returned budget always prints. Runs on every call, before the round
+    is planned. The message and the context's ``value`` render *value*
+    through :func:`value_text`, so the refusal itself cannot raise.
     """
     if value is None:
         return None
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        text = _value_text(value)
-        raise LizyMLError(
-            code=ErrorCode.CONFIG_INVALID,
-            user_message=(
-                f"memory_budget_bytes must be None or a positive int, got {text}."
-            ),
-            context={"reason": "invalid_memory_budget", "value": text},
-        )
-    return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        plain = int.__int__(value)
+        if 1 <= plain <= MAX_MEMORY_BUDGET_BYTES:
+            return plain
+    text = value_text(value)
+    raise LizyMLError(
+        code=ErrorCode.CONFIG_INVALID,
+        user_message=(
+            "memory_budget_bytes must be None or an int from 1 to "
+            f"2**63 - 1, got {text}."
+        ),
+        context={"reason": "invalid_memory_budget", "value": text},
+    )
 
 
 def require_trial_device_provider(provider: Any) -> TrialDeviceProvider:
     """*provider* when it has the :class:`TrialDeviceProvider` capability, else
     ``CONFIG_INVALID`` (``reason: "memory_estimate_unsupported"``): without the
-    finalized device a budgeted trial's device cannot be checked (DC1)."""
-    if not isinstance(provider, TrialDeviceProvider):
+    finalized device a budgeted trial's device cannot be checked (DC1).
+
+    ``finalized_device`` must also be callable: the runtime protocol accepts
+    any attribute of that name (``False`` included), and a non-callable one
+    would fail every trial after the round was written.
+    """
+    if not isinstance(provider, TrialDeviceProvider) or not callable(
+        getattr(provider, "finalized_device", None)
+    ):
         raise LizyMLError(
             code=ErrorCode.CONFIG_INVALID,
             user_message=(
@@ -327,23 +373,22 @@ def _refuse(budget: TuneBudget, reason: str, fields: str, why: str) -> NoReturn:
     """Count, log and raise one refusal; the reason and the budget lead both
     the log line and the message, so a cut ``first_error`` keeps them.
 
-    The budget is formatted once through ``int_text``, and the trial error's
-    context carries that text: Optuna logs ``repr()`` of every FAIL trial's
-    error, which must not raise for any budget.
+    The budget is within :data:`MAX_MEMORY_BUDGET_BYTES`, so it prints, and
+    the trial error's context carries it as an ``int``: Optuna logs ``repr()``
+    of every FAIL trial's error.
     """
     budget.refused += 1
-    limit = int_text(budget.limit)
     _log.info(
         "event='tune.trial.memory_refused' reason=%s budget=%s %s",
         reason,
-        limit,
+        budget.limit,
         fields,
     )
     raise LizyMLError(
         code=ErrorCode.TUNING_FAILED,
         user_message=(
             f"Trial refused by memory_budget_bytes: reason={reason} "
-            f"budget={limit} {fields} ({why})."
+            f"budget={budget.limit} {fields} ({why})."
         ),
-        context={"reason": reason, "memory_budget_bytes": limit},
+        context={"reason": reason, "memory_budget_bytes": budget.limit},
     )

@@ -31,6 +31,7 @@ from lizyml.core.types.memory_estimate import MemoryEstimate
 from lizyml.core.types.search_dim import CategoricalDim, FloatDim, IntDim, SearchDim
 from lizyml.estimators.provider import MemoryEstimateProvider
 from lizyml.tuning._step_grid import grid_value
+from lizyml.tuning.trial_failure import describe_exception
 
 #: The refusal a provider raises for an adapter it cannot estimate (policy 3).
 UNSUPPORTED = "memory_estimate_unsupported"
@@ -131,7 +132,8 @@ def evaluate_envelope(
 ) -> Envelope:
     """Evaluate every candidate point of *dims* and return the largest estimate.
 
-    Each point whose assembly or estimate raises is one ``failures`` entry,
+    Each point whose assembly or estimate raises is one ``failures`` entry
+    (``describe_exception``: the type and the message, never raising),
     names the dimensions that supplied end values or choices at it, and
     leaves the result incomplete; so does a dimension outside the provider's
     closed set.
@@ -168,7 +170,9 @@ def evaluate_envelope(
                 and exc.context.get("reason") == UNSUPPORTED
             ):
                 raise
-            failures.append(f"{type(exc).__name__}: {exc}")
+            # Never raises (an unprintable error must not stop the loop, so a
+            # later point's unsupported refusal is still reached).
+            failures.append(describe_exception(exc))
             unresolved.extend(named)
             continue
         evaluated += 1

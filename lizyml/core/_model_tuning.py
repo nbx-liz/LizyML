@@ -235,10 +235,11 @@ class ModelTuningMixin:
                 distribution kind, ``log`` and choices cannot change within a
                 study. An open round only accepts its recorded space.
             memory_budget_bytes: Opt-in cap on the extra CPU memory of one
-                trial (H-0150). ``None`` (default) changes nothing. A
-                positive ``int`` refuses, before it trains, each trial whose
-                estimate is over it (equal passes), whose assessment raises,
-                or whose finalized device is not the CPU; the trial is
+                trial (H-0150). ``None`` (default) changes nothing. An
+                ``int`` from 1 to ``2**63 - 1`` refuses, before it trains,
+                each trial whose estimate is over it (equal passes), whose
+                assessment raises, or whose finalized device is not the
+                CPU; the trial is
                 recorded FAIL (``event='tune.trial.memory_refused'`` is
                 logged, and the trial error carries, its ``reason`` and the
                 budget). It is compared with the estimate of extra CPU
@@ -279,9 +280,10 @@ class ModelTuningMixin:
                 and ``memory_budget_bytes`` describe this call only, so a
                 resumed round whose earlier trials were all refused reports 0).
             LizyMLError with CONFIG_INVALID for a ``memory_budget_bytes``
-                that is not ``None`` or a positive ``int``, a budgeted round
-                that runs trials but whose provider lacks
-                ``MemoryEstimateProvider`` or ``TrialDeviceProvider``, cannot
+                that is not ``None`` or an ``int`` from 1 to ``2**63 - 1``, a
+                budgeted round that runs trials but whose provider lacks
+                ``MemoryEstimateProvider`` or ``TrialDeviceProvider`` (a
+                callable ``finalized_device``), cannot
                 estimate the adapter of a candidate point, or whose device
                 may not be the CPU.
         """

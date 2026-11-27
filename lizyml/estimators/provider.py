@@ -576,7 +576,9 @@ class TrialDeviceProvider(Protocol):  # pragma: no cover
     only that one. Only ``Model.tune(memory_budget_bytes=...)`` requires it:
     a budgeted round that runs trials with a provider lacking it is refused
     with ``CONFIG_INVALID`` (``reason: "memory_estimate_unsupported"``)
-    before anything is written. The device it returns is judged by
+    before anything is written, and so is one whose ``finalized_device`` is
+    not callable (the runtime ``isinstance`` check accepts any attribute of
+    that name). The device it returns is judged by
     ``MemoryEstimateProvider.device_is_cpu``.
     """
 

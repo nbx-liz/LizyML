@@ -555,3 +555,111 @@ def test_the_estimate_does_not_mirror_fit_only_splitter_refusals() -> None:
     assert Model(cfg).estimate_memory(df).estimate_bytes > 0
     with pytest.raises(LizyMLError):
         Model(cfg).fit(df)
+
+
+# --- round 3 finding 1: an unprintable candidate error does not stop the probe ------
+
+
+class _UnprintableError(TypeError):
+    def __str__(self) -> str:
+        raise KeyError("a misbehaving __str__")
+
+
+class _UnprintableThen(LGBMProvider):
+    """``num_leaves=8`` fails to build with an error whose ``__str__`` raises;
+    ``num_leaves=16`` builds a foreign adapter when *foreign*, else LightGBM's."""
+
+    def __init__(self, *, foreign: bool) -> None:
+        super().__init__()
+        self._foreign = foreign
+
+    def build_estimator_factory(
+        self, task: Any, params: dict[str, Any], *args: Any, **kwargs: Any
+    ) -> Any:
+        if params.get("num_leaves") == 8:
+            raise _UnprintableError()
+        if self._foreign and params.get("num_leaves") == 16:
+            return lambda: object()
+        return super().build_estimator_factory(task, params, *args, **kwargs)
+
+
+#: The unprintable choice comes first, so its failure is met before the second.
+UNPRINTABLE_FIRST = {"num_leaves": {"type": "categorical", "choices": [8, 16]}}
+
+
+def _use_everywhere(monkeypatch: pytest.MonkeyPatch, provider: Any) -> None:
+    """Hand *provider* to ``tune`` and to ``estimate_tune_memory``."""
+    for module in ("_model_tuning", "_tune_planning", "_model_tune_memory"):
+        monkeypatch.setattr(f"lizyml.core.{module}.get_provider", lambda _c: provider)
+
+
+def test_an_unprintable_candidate_error_does_not_hide_an_unsupported_adapter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    train_stub: _Recorder,  # noqa: F811
+) -> None:
+    _use_everywhere(monkeypatch, _UnprintableThen(foreign=True))
+    cfg = _cfg(space=_space(**UNPRINTABLE_FIRST), auto=False, n_trials=2)
+    url = _url(tmp_path)
+    model = Model(cfg)
+    with pytest.raises(LizyMLError) as err:
+        model.tune(
+            data=_df("regression"),
+            storage=url,
+            study_name="s",
+            memory_budget_bytes=BUDGET,
+        )
+    assert err.value.code is ErrorCode.CONFIG_INVALID
+    assert err.value.context["reason"] == "memory_estimate_unsupported"
+    _no_study_written(url)
+    assert model._study is None
+    assert train_stub.calls == []
+    # Part A's rule, through the same loop: the unsupported refusal propagates.
+    with pytest.raises(LizyMLError) as est_err:
+        Model(cfg).estimate_tune_memory(_df("regression"))
+    assert est_err.value.code is ErrorCode.CONFIG_INVALID
+    assert est_err.value.context["reason"] == "memory_estimate_unsupported"
+
+
+def test_an_unprintable_candidate_error_is_recorded_as_a_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _use_everywhere(monkeypatch, _UnprintableThen(foreign=False))
+    cfg = _cfg(space=_space(**UNPRINTABLE_FIRST), auto=False)
+    est = Model(cfg).estimate_tune_memory(_df("regression"))
+    assert est.status == "incomplete"
+    assert est.failures == ("_UnprintableError: <unprintable message>",)
+    assert est.n_candidates == 1  # the second choice was still evaluated
+    assert "num_leaves" in est.unresolved
+
+
+# --- round 3 finding 3: a non-callable finalized_device -------------------------------
+
+
+class _DeviceNotCallable(LGBMProvider):
+    """``finalized_device`` is an attribute, not a method: ``isinstance``
+    against the runtime protocol accepts it on Python 3.12."""
+
+    finalized_device = False  # type: ignore[assignment]
+
+
+def test_a_non_callable_finalized_device_is_refused_before_any_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    train_stub: _Recorder,  # noqa: F811
+) -> None:
+    _use(monkeypatch, _DeviceNotCallable())
+    url = _url(tmp_path)
+    model = Model(_cfg(space=_space(), n_trials=2))
+    with pytest.raises(LizyMLError) as err:
+        model.tune(
+            data=_df("regression"),
+            storage=url,
+            study_name="s",
+            memory_budget_bytes=BUDGET,
+        )
+    assert err.value.code is ErrorCode.CONFIG_INVALID
+    assert err.value.context["reason"] == "memory_estimate_unsupported"
+    _no_study_written(url)
+    assert model._study is None
+    assert train_stub.calls == []
