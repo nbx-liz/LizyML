@@ -1,0 +1,51 @@
+## metrics: get_metric(key)
+  logloss          ok LogLoss
+  auc              ok AUC
+  auc_pr           ok AUCPR
+  f1               ok F1
+  accuracy         ok Accuracy
+  brier            ok Brier
+  ece              ok ECE
+  precision_at_k   ok PrecisionAtK
+  rmse             ok RMSE
+  mae              ok MAE
+  r2               ok R2
+  rmsle            ok RMSLE
+  mape             ok MAPE
+  huber            ok HuberLoss
+  smape            ok SMAPE
+  wape             ok WAPE
+  mase             ok MASE
+## metrics: get_metrics_for_task([key], task)
+  regression huber            ok HuberLoss
+  regression mae              ok MAE
+  regression mape             ok MAPE
+  regression mase             ok MASE
+  regression r2               ok R2
+  regression rmse             ok RMSE
+  regression rmsle            ok RMSLE
+  regression smape            ok SMAPE
+  regression wape             ok WAPE
+  binary     accuracy         ok Accuracy
+  binary     auc              ok AUC
+  binary     auc_pr           ok AUCPR
+  binary     brier            ok Brier
+  binary     ece              ok ECE
+  binary     f1               ok F1
+  binary     logloss          ok LogLoss
+  binary     precision_at_k   ok PrecisionAtK
+  multiclass accuracy         ok Accuracy
+  multiclass auc              ok AUC
+  multiclass auc_pr           ok AUCPR
+  multiclass brier            ok Brier
+  multiclass f1               ok F1
+  multiclass logloss          ok LogLoss
+## calibrators: get_calibrator(key)
+  beta             ok BetaCalibrator
+  isotonic         ok IsotonicCalibrator
+  platt            ok PlattCalibrator
+## unknown names (message order)
+  metric:     LizyMLError UNSUPPORTED_METRIC: Metric 'nope' is not registered. Available: ['logloss', 'auc', 'auc_pr', 'f1', 'accuracy', 'brier', 'ece', 'precision_at_k', 'rmse', 'mae', 'r2', 'rmsle', 'mape', 'huber', 'smape', 'wape', 'mase']
+  calibrator: LizyMLError CALIBRATION_NOT_SUPPORTED: Unknown calibration method: 'nope'.
+## Facade preflight with an unregistered method and params
+  KeyError: "'nope' is not registered in CalibratorRegistry. Available: ['beta', 'isotonic', 'platt']"

@@ -1,0 +1,38 @@
+## MetricRegistry: 17 rows
+  accuracy         lizyml.metrics.classification.Accuracy: ok
+  auc              lizyml.metrics.classification.AUC: ok
+  auc_pr           lizyml.metrics.classification.AUCPR: ok
+  brier            lizyml.metrics.classification.Brier: ok
+  ece              lizyml.metrics.classification.ECE: ok
+  f1               lizyml.metrics.classification.F1: ok
+  huber            lizyml.metrics.regression.HuberLoss: ok
+  logloss          lizyml.metrics.classification.LogLoss: ok
+  mae              lizyml.metrics.regression.MAE: ok
+  mape             lizyml.metrics.regression.MAPE: ok
+  mase             lizyml.metrics.regression.MASE: ok
+  precision_at_k   lizyml.metrics.classification.PrecisionAtK: ok
+  r2               lizyml.metrics.regression.R2: ok
+  rmse             lizyml.metrics.regression.RMSE: ok
+  rmsle            lizyml.metrics.regression.RMSLE: ok
+  smape            lizyml.metrics.regression.SMAPE: ok
+  wape             lizyml.metrics.regression.WAPE: ok
+## CalibratorRegistry: 3 rows
+  beta             lizyml.calibration.beta.BetaCalibrator: ok
+  isotonic         lizyml.calibration.isotonic.IsotonicCalibrator: ok
+  platt            lizyml.calibration.platt.PlattCalibrator: ok
+## _TASK_METRICS names 17 keys
+  equal to the registered metric keys
+## references to the registry symbols
+  lizyml/calibration/beta.py: lines [17, 40]
+  lizyml/calibration/isotonic.py: lines [21, 66]
+  lizyml/calibration/platt.py: lines [33, 54]
+  lizyml/calibration/registry.py: lines [13, 44]
+  lizyml/core/_model_factories.py: lines [1262, 1265]
+  lizyml/core/registries.py: lines [48, 49]
+  lizyml/metrics/classification.py: lines [23, 154, 180, 216, 248, 272, 294, 326, 362]
+  lizyml/metrics/registry.py: lines [16, 120, 125]
+  lizyml/metrics/regression.py: lines [11, 33, 54, 75, 100, 130, 161, 199, 239, 281]
+  tests/test_calibration/test_calibration_param_names.py: lines [37, 466, 468]
+  tests/test_core/test_calibration_params_reach.py: lines [23, 215, 217, 225]
+  tests/test_metrics/test_metric_requires_proba.py: lines [24, 31]
+## rows the proposed bootstrap validation would refuse: 0
