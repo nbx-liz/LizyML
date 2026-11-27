@@ -33,6 +33,7 @@ from __future__ import annotations
 import math
 from collections.abc import Iterator
 from contextlib import contextmanager
+from fractions import Fraction
 from typing import Any
 
 import lightgbm as lgb
@@ -139,8 +140,11 @@ def _num_leaves_from_ratio(max_depth: int | None, ratio: float) -> int:
     Deliberately not imported from ``smart_params._compute_num_leaves``: the
     expectation must not move when the code under test moves.
     """
-    base = 131072 if max_depth is None or max_depth < 0 else 2**max_depth
-    return max(8, min(131072, math.ceil(base * ratio)))
+    if max_depth is None or max_depth <= 0:  # no limit (H-0140)
+        return max(8, min(131072, math.ceil(131072 * ratio)))
+    # Exact, so a depth past the float range reaches the cap (#433).
+    exact = Fraction(ratio) * Fraction(2) ** max_depth
+    return max(8, min(131072, math.ceil(exact)))
 
 
 def _assert_effect_reached_lightgbm(

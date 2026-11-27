@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import numbers
 from typing import Any
 
 import numpy as np
@@ -111,25 +112,39 @@ def smart_managed_names(
 _MAX_DERIVED_LEAVES = 131072
 #: ``mantissa * 2**shift`` with ``mantissa >= 0.5`` reaches the cap from here.
 _CAP_SHIFT = 18
+#: The deepest depth whose ``2.0**depth`` is finite in IEEE double.
+_FLOAT_SAFE_DEPTH = 1023
 
 
-def _compute_num_leaves(max_depth: int | None, ratio: float) -> int:
+def _compute_num_leaves(max_depth: float | None, ratio: float) -> int:
     """Compute num_leaves from max_depth and ratio.
 
     ``max_depth <= 0`` is no limit, as in LightGBM (H-0140); ``0`` used to
     derive 8 leaves.
 
-    ``2**max_depth * ratio`` is computed as ``mantissa * 2**(max_depth +
-    exponent)`` of the ratio (``math.frexp``), so no ``int`` is converted to
-    ``float``: from depth 1024 on that conversion raised ``OverflowError``
-    before the cap applied (#433). Multiplying by a power of two is exact in
-    floating point, so every depth the old product could compute derives the
-    same value.
+    The derivation and the cap are unchanged; only the overflow is gone (#433).
+    The old ``math.ceil(2**max_depth * ratio)`` converted ``2**max_depth`` to
+    ``float`` and raised ``OverflowError`` from depth 1024 on, before the cap
+    applied. Here ``2**whole * x`` (``x`` the ratio, times ``2**frac`` for a
+    fractional depth) is formed as ``mantissa * 2**(whole + exponent)`` of
+    ``math.frexp(x)``. Scaling by a power of two is exact in floating point,
+    so every depth the old product could compute derives the same value. A
+    float depth up to 1023, or one that is not finite, keeps the old
+    expression itself.
     """
     if max_depth is None or max_depth <= 0:
         return max(8, min(_MAX_DERIVED_LEAVES, math.ceil(_MAX_DERIVED_LEAVES * ratio)))
-    mantissa, exponent = math.frexp(ratio)
-    shift = max_depth + exponent
+    if isinstance(max_depth, numbers.Integral):
+        whole, scaled = int(max_depth), ratio
+    else:
+        depth = float(max_depth)
+        if not math.isfinite(depth) or depth <= _FLOAT_SAFE_DEPTH:
+            # The pre-#433 expression, kept as it was for float depths.
+            return max(8, min(_MAX_DERIVED_LEAVES, math.ceil(2**depth * ratio)))
+        whole = math.floor(depth)
+        scaled = ratio * 2.0 ** (depth - whole)
+    mantissa, exponent = math.frexp(scaled)
+    shift = whole + exponent
     # mantissa is in [0.5, 1) for a positive ratio, so a shift of 18 or more
     # already gives at least 2**17 leaves: the cap.
     if shift >= _CAP_SHIFT:

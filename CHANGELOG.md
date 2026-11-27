@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- **`auto_num_leaves` reaches its 131072-leaf cap for any `max_depth`; #433 is fixed** ([#433](https://github.com/nbx-liz/LizyML/issues/433)). From `max_depth=1024` on, deriving `num_leaves` converted `2**max_depth` to `float` and raised a bare `OverflowError` before the cap applied: `Model.fit` failed with no `LizyMLError` code, and `Model.tune` aborted the whole study at the first such trial (`OverflowError` is outside the trial `catch=`). These depths now derive 131072 leaves, as depth 17 and above already did for a ratio of 1. Depths up to 1023 derive exactly the same values as before.
+- **`auto_num_leaves` reaches its 131072-leaf cap for any `max_depth`; #433 is fixed** ([#433](https://github.com/nbx-liz/LizyML/issues/433)). From `max_depth=1024` on, deriving `num_leaves` converted `2**max_depth` to `float` and raised a bare `OverflowError` before the cap applied: `Model.fit` failed with no `LizyMLError` code, and `Model.tune` aborted the whole study at the first such trial (`OverflowError` is outside the trial `catch=`). The derivation and the cap are unchanged and now apply without the overflow: such a depth derives 131072 leaves for any ratio the Config admits except a vanishingly small one (`num_leaves_ratio` is in (0, 1]), and every depth the old formula could compute, including a float depth a search dimension samples, derives exactly the same value as before.
 
 ## [0.22.0] - 2026-11-20
 
