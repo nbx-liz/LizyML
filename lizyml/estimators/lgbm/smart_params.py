@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from fractions import Fraction
 from typing import Any
 
 import numpy as np
@@ -107,14 +108,71 @@ def smart_managed_names(
     return managed
 
 
-def _compute_num_leaves(max_depth: int | None, ratio: float) -> int:
+#: The most leaves ``auto_num_leaves`` derives (2**17, LightGBM's own cap).
+_MAX_DERIVED_LEAVES = 131072
+#: From this whole depth on, even the smallest positive ratio (2**-1074)
+#: derives at least 2**17 leaves: the cap.
+_CAP_DEPTH_FOR_ANY_RATIO = 1091
+#: The smallest ``int`` depth whose ``2**max_depth`` does not fit a float.
+_FIRST_OVERFLOWING_INT_DEPTH = 1024
+
+
+def _compute_num_leaves(max_depth: float | None, ratio: float) -> int:
     """Compute num_leaves from max_depth and ratio.
 
     ``max_depth <= 0`` is no limit, as in LightGBM (H-0140); ``0`` used to
     derive 8 leaves.
+
+    The product ``2**max_depth * ratio`` is evaluated exactly as before #433,
+    so every input it handled derives the same value. Only when it raises
+    ``OverflowError`` (``2**max_depth`` past the float range, from depth 1024
+    on) is the value computed exactly instead (:func:`_beyond_float_range`);
+    that error used to escape before the cap applied, failing fit and
+    aborting tune (#433). A plain ``int`` depth of 1024 or more with a
+    ``float`` ratio goes there directly, since the old product always
+    overflowed for it, and with an ``int`` ratio of at least 1 it returns the
+    cap the old product always returned: building ``2**max_depth`` first can
+    exhaust memory for a huge depth. Any other input evaluates the old
+    product as before.
     """
-    base = 131072 if max_depth is None or max_depth <= 0 else 2**max_depth
-    return max(8, min(131072, math.ceil(base * ratio)))
+    if max_depth is None or max_depth <= 0:
+        value = _MAX_DERIVED_LEAVES * ratio
+    elif (
+        type(max_depth) is int
+        and max_depth >= _FIRST_OVERFLOWING_INT_DEPTH
+        and (type(ratio) is float)
+    ):
+        return _beyond_float_range(max_depth, ratio)
+    elif (
+        type(max_depth) is int
+        and max_depth >= _FIRST_OVERFLOWING_INT_DEPTH
+        and type(ratio) is int
+        and ratio >= 1
+    ):
+        return _MAX_DERIVED_LEAVES
+    else:
+        try:
+            value = 2**max_depth * ratio
+        except OverflowError:
+            return _beyond_float_range(max_depth, ratio)
+    return max(8, min(_MAX_DERIVED_LEAVES, math.ceil(value)))
+
+
+def _beyond_float_range(max_depth: float, ratio: float) -> int:
+    """``2**max_depth * ratio`` leaves, capped, for a depth past the float range.
+
+    The depth is at least 1024 here. A ratio that is not positive derives the
+    minimum of 8. From whole depth 1091 on any positive ratio reaches the cap;
+    below it the product is formed exactly with ``Fraction`` (the fractional
+    part of a float depth enters as ``2.0**frac``).
+    """
+    if not ratio > 0:
+        return 8
+    whole = math.floor(max_depth)
+    if whole >= _CAP_DEPTH_FOR_ANY_RATIO:
+        return _MAX_DERIVED_LEAVES
+    exact = Fraction(ratio) * Fraction(2.0 ** (max_depth - whole)) * (1 << whole)
+    return max(8, min(_MAX_DERIVED_LEAVES, math.ceil(exact)))
 
 
 def _compute_ratio_param(n_rows: int, ratio: float) -> int:
