@@ -117,6 +117,40 @@ def test_a_huge_int_depth_does_not_build_its_power_of_two(depth: int) -> None:
     assert peak < 1 << 20  # well under 1 MiB
 
 
+class _PowerOfTwoIs16(int):
+    """An int whose ``2**self`` is 16, as the delta check in loop round 4 used."""
+
+    def __rpow__(self, base: Any) -> int:
+        return 16
+
+
+def test_inputs_outside_the_early_branch_keep_the_old_product() -> None:
+    """Only a plain int depth with a float ratio, or an int ratio of 1 or more,
+    skips the old product; everything else evaluates it as before.
+    """
+    ratio = Fraction(1, 1 << 1087)
+    assert _legacy(1091, ratio) == 16
+    assert smart_params._compute_num_leaves(1091, ratio) == 16  # noqa: SLF001
+    depth = _PowerOfTwoIs16(1091)
+    assert _legacy(depth, 1.0) == 16
+    assert smart_params._compute_num_leaves(depth, 1.0) == 16  # noqa: SLF001
+
+
+@pytest.mark.parametrize("depth", [1024, 1091, 2**31 - 1])
+def test_an_int_ratio_of_one_returns_the_cap_without_building_the_power(
+    depth: int,
+) -> None:
+    """The old product with ``ratio=1`` was the exact int ``2**depth``: the cap."""
+    tracemalloc.start()
+    try:
+        got = smart_params._compute_num_leaves(depth, 1)  # noqa: SLF001
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert got == _CAP
+    assert peak < 1 << 20
+
+
 @pytest.mark.parametrize("depth", [1024.5, 2000.0])
 def test_a_float_depth_past_the_float_range_derives_the_cap(depth: float) -> None:
     assert smart_params._compute_num_leaves(depth, 1.0) == _CAP  # noqa: SLF001

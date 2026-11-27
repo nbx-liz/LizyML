@@ -128,14 +128,28 @@ def _compute_num_leaves(max_depth: float | None, ratio: float) -> int:
     ``OverflowError`` (``2**max_depth`` past the float range, from depth 1024
     on) is the value computed exactly instead (:func:`_beyond_float_range`);
     that error used to escape before the cap applied, failing fit and
-    aborting tune (#433). An ``int`` depth of 1024 or more goes there
-    directly: its ``2**max_depth`` never fits a float, and building that
-    integer first can exhaust memory for a huge depth.
+    aborting tune (#433). A plain ``int`` depth of 1024 or more with a
+    ``float`` ratio goes there directly, since the old product always
+    overflowed for it, and with an ``int`` ratio of at least 1 it returns the
+    cap the old product always returned: building ``2**max_depth`` first can
+    exhaust memory for a huge depth. Any other input evaluates the old
+    product as before.
     """
     if max_depth is None or max_depth <= 0:
         value = _MAX_DERIVED_LEAVES * ratio
-    elif isinstance(max_depth, int) and max_depth >= _FIRST_OVERFLOWING_INT_DEPTH:
+    elif (
+        type(max_depth) is int
+        and max_depth >= _FIRST_OVERFLOWING_INT_DEPTH
+        and (type(ratio) is float)
+    ):
         return _beyond_float_range(max_depth, ratio)
+    elif (
+        type(max_depth) is int
+        and max_depth >= _FIRST_OVERFLOWING_INT_DEPTH
+        and type(ratio) is int
+        and ratio >= 1
+    ):
+        return _MAX_DERIVED_LEAVES
     else:
         try:
             value = 2**max_depth * ratio
