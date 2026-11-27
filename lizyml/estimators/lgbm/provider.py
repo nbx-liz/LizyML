@@ -501,6 +501,21 @@ class LGBMProvider:
                 ),
                 context={"reason": "memory_estimate_unsupported"},
             )
+        if a.num_leaves < 1 or a.rounds < 1:
+            # The bound rule of ``memory_role`` holds only from 1 up (H-0150).
+            raise LizyMLError(
+                code=ErrorCode.CONFIG_INVALID,
+                user_message=(
+                    "The memory estimate needs num_leaves and the number of "
+                    f"rounds to be at least 1; got num_leaves={a.num_leaves}, "
+                    f"rounds={a.rounds}."
+                ),
+                context={
+                    "reason": "memory_estimate_unevaluable",
+                    "num_leaves": a.num_leaves,
+                    "rounds": a.rounds,
+                },
+            )
         return MemoryEstimate(
             num_leaves=a.num_leaves,
             cause=a.cause,
@@ -523,6 +538,10 @@ class LGBMProvider:
             return "none"
         return None
 
+    def is_device_name(self, name: str) -> bool:
+        """Whether *name* is a spelling of LightGBM's ``device_type``."""
+        return LGBM_CANONICAL_NAME.get(name, name) == "device_type"
+
     def device_is_cpu(self, params: dict[str, Any]) -> bool:
         """Whether *params* train on the CPU (H-0150 policy 6).
 
@@ -530,9 +549,7 @@ class LGBMProvider:
         means the CPU. The one place the device is decided.
         """
         for key, value in params.items():
-            if LGBM_CANONICAL_NAME.get(key, key) == "device_type" and (
-                str(value).strip().lower() != "cpu"
-            ):
+            if self.is_device_name(key) and str(value).strip().lower() != "cpu":
                 return False
         return True
 

@@ -83,8 +83,10 @@ from lizyml.core._model_plots import ModelPlotsMixin
 from lizyml.core._model_predict import run_predict
 from lizyml.core._model_state import FitState
 from lizyml.core._model_tables import ModelTablesMixin
+from lizyml.core._model_tune_memory import ModelTuneMemoryMixin
 from lizyml.core._model_tuning import ModelTuningMixin
 from lizyml.core._resource_warning import check_resources
+from lizyml.core._tune_planning import TunePlanningMixin
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import generate_run_id, get_logger
 from lizyml.core.specs.feature_spec import FeatureSpec
@@ -130,6 +132,8 @@ class Model(
     ModelPersistenceMixin,
     ModelTuningMixin,
     ModelMemoryMixin,
+    ModelTuneMemoryMixin,
+    TunePlanningMixin,
 ):
     """Public-facing facade for LizyML.
 

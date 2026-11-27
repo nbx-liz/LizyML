@@ -550,6 +550,10 @@ class MemoryEstimateProvider(Protocol):  # pragma: no cover
         ``"none"`` (not at all); ``None`` when the provider cannot say."""
         ...
 
+    def is_device_name(self, name: str) -> bool:
+        """Whether *name* is a spelling of the parameter that picks the device."""
+        ...
+
     def device_is_cpu(self, params: dict[str, Any]) -> bool:
         """Whether the finalized *params* train on the CPU (an absent device
         is the CPU). The one place the device is decided (H-0150 policy 6)."""

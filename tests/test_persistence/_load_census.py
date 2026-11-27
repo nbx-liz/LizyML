@@ -154,6 +154,10 @@ INVENTORY: dict[str, tuple[str, ...] | str] = {
     "calibration_plot": ("calibration_plot",),
     "confusion_matrix": ("confusion_matrix",),
     "evaluate": ("evaluate",),
+    "estimate_memory": "estimates a fit's memory; not a reading of a result",
+    "estimate_tune_memory": (
+        "estimates a tune round's memory; not a reading of a result"
+    ),
     "evaluate_table": ("evaluate_table",),
     "export": "writes the artifact the census reads",
     "export_code": ("export_code",),

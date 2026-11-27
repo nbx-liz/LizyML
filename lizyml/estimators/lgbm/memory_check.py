@@ -57,6 +57,7 @@ class MemoryAssessment:
         max_depth: The ``max_depth`` LightGBM receives, or ``None``.
         estimate_bytes: The approximate extra CPU memory.
         n_boosters: The boosters kept alive at once that the estimate counts.
+        rounds: The ``num_boost_round`` LightGBM receives (H-0150).
     """
 
     num_leaves: int
@@ -64,6 +65,7 @@ class MemoryAssessment:
     max_depth: int | None
     estimate_bytes: int
     n_boosters: int
+    rounds: int = 1
 
     @property
     def fires(self) -> bool:
@@ -263,6 +265,7 @@ def assess(
             linear_features=n_features if linear else 0,
         ),
         n_boosters=n_boosters,
+        rounds=num_boost_round,
     )
 
 

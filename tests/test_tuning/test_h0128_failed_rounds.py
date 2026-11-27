@@ -433,6 +433,7 @@ def test_a_provider_without_trial_errors_tunes_as_before(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import lizyml.core._model_tuning as model_tuning
+    import lizyml.core._tune_planning as tune_planning
 
     class ThirdParty:
         """An LGBM provider seen through a pre-H-0128 interface."""
@@ -445,7 +446,8 @@ def test_a_provider_without_trial_errors_tunes_as_before(
                 raise AttributeError(name)
             return getattr(self._inner, name)
 
-    monkeypatch.setattr(model_tuning, "get_provider", lambda cfg: ThirdParty())
+    for module in (model_tuning, tune_planning):
+        monkeypatch.setattr(module, "get_provider", lambda cfg: ThirdParty())
     model = Model(fast_config(n_trials=2), data=frame())
     model.tune(storage=url(tmp_path), study_name="s")  # tunes as before
     with pytest.raises(LizyMLError) as caught:
