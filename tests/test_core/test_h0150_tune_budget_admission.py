@@ -80,6 +80,13 @@ class _Incapable:
         return getattr(self._p, name)
 
 
+class _PartAOnly(LGBMProvider):
+    """A provider with exactly part A's ``MemoryEstimateProvider`` methods:
+    ``finalized_device = None`` blocks the method for ``isinstance``."""
+
+    finalized_device = None  # type: ignore[assignment]
+
+
 def _exhausted_open_round(
     cfg: dict[str, Any], df: Any, url: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -196,7 +203,9 @@ def test_a_round_with_no_trial_closes_as_before_despite_budget_and_gpu(
 
 
 @pytest.mark.parametrize(
-    "provider", [_Incapable, _ForeignAdapterProvider], ids=["incapable", "foreign"]
+    "provider",
+    [_Incapable, _ForeignAdapterProvider, _PartAOnly],
+    ids=["incapable", "foreign", "part-a-only"],
 )
 def test_a_round_with_no_trial_skips_the_capability_checks(
     provider: Any,
@@ -244,11 +253,11 @@ def test_an_adapter_that_cannot_be_estimated_is_refused_before_any_write(
 @pytest.mark.parametrize(
     "exc",
     [
-        TypeError("the base point cannot be estimated"),
+        TypeError("the candidate point cannot be estimated"),
         # Also CONFIG_INVALID, so the probe must decide on the reason.
         LizyMLError(
             code=ErrorCode.CONFIG_INVALID,
-            user_message="the base point has fewer than 1 round",
+            user_message="the candidate point has fewer than 1 round",
             context={"reason": "memory_estimate_unevaluable"},
         ),
     ],
@@ -261,7 +270,7 @@ def test_an_unevaluable_base_point_is_left_to_the_trial_guard(
     train_stub: _Recorder,  # noqa: F811
 ) -> None:
     # Only memory_estimate_unsupported refuses at admission; another failure of
-    # the representative estimate starts the round, and each trial is judged.
+    # a candidate point estimate starts the round, and each trial is judged.
     real = LGBMProvider.estimate_memory
     seen = {"n": 0}
 
@@ -276,8 +285,174 @@ def test_an_unevaluable_base_point_is_left_to_the_trial_guard(
         data=_df("regression"), memory_budget_bytes=BUDGET
     )
     assert result.best_params
-    assert seen["n"] == 3  # the probe, then one estimate per trial
+    assert seen["n"] == 3  # one candidate point (learning_rate low), then one per trial
     assert len(train_stub.calls) == 2 * N_FOLDS
+
+
+# --- round 2 finding 1: the probe evaluates the envelope's candidate points ----------
+
+
+class _ForeignWhen(LGBMProvider):
+    """A capable provider whose factory builds a foreign adapter only for the
+    model parameters *when* accepts (``build_estimator_factory`` may depend on
+    the parameters, ``lizyml/estimators/provider.py``)."""
+
+    def __init__(self, when: Any) -> None:
+        super().__init__()
+        self._when = when
+
+    def build_estimator_factory(
+        self, task: Any, params: dict[str, Any], *args: Any, **kwargs: Any
+    ) -> Any:
+        if self._when(params):
+            return lambda: object()
+        return super().build_estimator_factory(task, params, *args, **kwargs)
+
+
+ONLY_16 = {"num_leaves": {"type": "categorical", "choices": [16]}}
+
+
+def test_a_foreign_base_value_that_never_runs_is_not_refused(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    train_stub: _Recorder,  # noqa: F811
+) -> None:
+    # The base num_leaves=8 builds a foreign adapter, but every trial of the
+    # round samples 16, which the provider can estimate.
+    _use(monkeypatch, _ForeignWhen(lambda p: p.get("num_leaves") == 8))
+    cfg = _cfg(space=_space(**ONLY_16), auto=False, n_trials=2, num_leaves=8)
+    url = _url(tmp_path)
+    result = Model(cfg).tune(
+        data=_df("regression"),
+        storage=url,
+        study_name="s",
+        memory_budget_bytes=BUDGET,
+    )
+    assert result.best_params["num_leaves"] == 16
+    assert len(train_stub.calls) == 2 * N_FOLDS
+    assert _end_record(url).status == "completed"
+
+
+def test_a_foreign_sampled_choice_is_refused_before_any_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    train_stub: _Recorder,  # noqa: F811
+) -> None:
+    # Only the sampled choice 16 builds a foreign adapter; the base 8 does not.
+    _use(monkeypatch, _ForeignWhen(lambda p: p.get("num_leaves") == 16))
+    cfg = _cfg(space=_space(**ONLY_16), auto=False, n_trials=2, num_leaves=8)
+    url = _url(tmp_path)
+    model = Model(cfg)
+    with pytest.raises(LizyMLError) as err:
+        model.tune(
+            data=_df("regression"),
+            storage=url,
+            study_name="s",
+            memory_budget_bytes=BUDGET,
+        )
+    assert err.value.code is ErrorCode.CONFIG_INVALID
+    assert err.value.context["reason"] == "memory_estimate_unsupported"
+    _no_study_written(url)  # neither the study nor the round record exists
+    assert model._study is None
+    assert train_stub.calls == []
+
+
+def test_a_foreign_adapter_off_the_candidate_points_is_refused_per_trial(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    train_stub: _Recorder,  # noqa: F811
+) -> None:
+    # The documented bound: only the envelope's candidate points are probed. A
+    # "none" dimension contributes its lower end alone, so a foreign adapter
+    # at any other sampled value is refused per trial as assessment_failed.
+    low = _space()["learning_rate"]["low"]
+    _use(monkeypatch, _ForeignWhen(lambda p: p.get("learning_rate", low) != low))
+    url = _url(tmp_path)
+    with pytest.raises(LizyMLError) as err:
+        Model(_cfg(space=_space(), auto=False, n_trials=2)).tune(
+            data=_df("regression"),
+            storage=url,
+            study_name="s",
+            memory_budget_bytes=BUDGET,
+        )
+    assert err.value.code is ErrorCode.TUNING_FAILED
+    assert err.value.context["memory_refused_this_call"] == 2
+    assert "reason=assessment_failed" in err.value.context["first_error"]
+    assert train_stub.calls == []
+
+
+def test_a_candidate_value_that_cannot_be_built_is_left_to_the_trial_guard(
+    monkeypatch: pytest.MonkeyPatch,
+    train_stub: _Recorder,  # noqa: F811
+) -> None:
+    # The probe's candidate values come from the provider's memory_role. A
+    # failure there is not memory_estimate_unsupported, so admission lets the
+    # round start, as for a failed point (round 1's rule, kept).
+    def broken(self: LGBMProvider, name: str) -> Any:
+        raise TypeError("memory_role failed")
+
+    monkeypatch.setattr(LGBMProvider, "memory_role", broken)
+    result = Model(_cfg(space=_space(), auto=False, n_trials=2)).tune(
+        data=_df("regression"), memory_budget_bytes=BUDGET
+    )
+    assert result.best_params
+    assert len(train_stub.calls) == 2 * N_FOLDS
+
+
+# --- round 2 finding 2: the device capability is separate from part A's -----------
+
+
+def _same_estimates(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _cfg(space=_space(**LEAVES_8_64), auto=False)
+    df = _df("regression")
+    native = (Model(cfg).estimate_memory(df), Model(cfg).estimate_tune_memory(df))
+    for module in ("_model_memory", "_model_tune_memory", "_tune_planning"):
+        monkeypatch.setattr(
+            f"lizyml.core.{module}.get_provider", lambda _c: _PartAOnly()
+        )
+    assert Model(cfg).estimate_memory(df) == native[0]
+    assert Model(cfg).estimate_tune_memory(df) == native[1]
+
+
+LEAVES_8_64 = {"num_leaves": {"type": "categorical", "choices": [8, 64]}}
+
+
+def test_both_estimates_accept_a_provider_with_only_part_a_methods(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lizyml.estimators.provider import MemoryEstimateProvider
+
+    assert isinstance(_PartAOnly(), MemoryEstimateProvider)
+    _same_estimates(monkeypatch)
+
+
+def test_the_part_a_only_fixture_lacks_the_device_capability() -> None:
+    from lizyml.estimators.provider import TrialDeviceProvider
+
+    assert not isinstance(_PartAOnly(), TrialDeviceProvider)
+    assert isinstance(LGBMProvider(), TrialDeviceProvider)
+
+
+def test_a_budget_needs_the_device_capability_before_any_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    train_stub: _Recorder,  # noqa: F811
+) -> None:
+    _use(monkeypatch, _PartAOnly())
+    url = _url(tmp_path)
+    model = Model(_cfg(space=_space(), n_trials=2))
+    with pytest.raises(LizyMLError) as err:
+        model.tune(
+            data=_df("regression"),
+            storage=url,
+            study_name="s",
+            memory_budget_bytes=BUDGET,
+        )
+    assert err.value.code is ErrorCode.CONFIG_INVALID
+    assert err.value.context["reason"] == "memory_estimate_unsupported"
+    _no_study_written(url)
+    assert model._study is None
+    assert train_stub.calls == []
 
 
 # --- acceptance 9: resume with another budget ----------------------------------------

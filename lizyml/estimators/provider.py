@@ -566,13 +566,26 @@ class MemoryEstimateProvider(Protocol):  # pragma: no cover
         is the CPU). The one place the device is decided (H-0150 policy 6)."""
         ...
 
+
+@runtime_checkable
+class TrialDeviceProvider(Protocol):  # pragma: no cover
+    """Optional provider capability: the device a built adapter trains on
+    (H-0150 part B, policy 6 (b)).
+
+    Separate from :class:`MemoryEstimateProvider`, so the two estimates need
+    only that one. Only ``Model.tune(memory_budget_bytes=...)`` requires it:
+    a budgeted round that runs trials with a provider lacking it is refused
+    with ``CONFIG_INVALID`` (``reason: "memory_estimate_unsupported"``)
+    before anything is written. The device it returns is judged by
+    ``MemoryEstimateProvider.device_is_cpu``.
+    """
+
     def finalized_device(
         self, *, estimator_factory: Callable[[], BaseEstimatorAdapter]
     ) -> dict[str, Any]:
         """The device entries of the parameters the adapter *estimator_factory*
         builds hands the estimator library (empty: none named), for
-        ``device_is_cpu``; the tune budget's per-trial device check (H-0150
-        policy 6 (b)).
+        ``device_is_cpu``; the tune budget's per-trial device check.
 
         Raises:
             LizyMLError: ``CONFIG_INVALID`` when the factory's estimator is

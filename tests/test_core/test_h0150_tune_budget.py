@@ -18,9 +18,11 @@ import pytest
 
 from lizyml import Model
 from lizyml.core import _tune_budget
+from lizyml.core._model_tuning import ModelTuningMixin
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.estimators.lgbm.adapter import LGBMAdapter
 from lizyml.estimators.lgbm.provider import LGBMProvider
+from lizyml.training.cv_trainer import CVTrainer
 from tests.test_core.test_h0150_estimate_tune_memory import (
     N_FOLDS,
     _cfg,
@@ -180,7 +182,7 @@ def _raising_estimate(
 
 
 def _no_probe(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Skip the admission's representative estimate, so a test that makes the
+    """Skip the admission's candidate-point estimates, so a test that makes the
     estimate or the build raise reaches the per-trial guard with every call
     (``raising=False``: the probe did not exist before H-0150 round 1)."""
     monkeypatch.setattr(
@@ -281,6 +283,138 @@ def test_a_component_build_that_raises_under_a_budget_is_assessment_failed(
     assert len(lines) == 1 and "reason=assessment_failed" in lines[0]
     assert "TypeError: the components could not be built" in lines[0]
     assert _states(url) == ["FAIL", "COMPLETE"]
+
+
+def test_a_budgeted_trial_builds_its_components_once_and_trains_with_them(
+    monkeypatch: pytest.MonkeyPatch,
+    train_stub: _Recorder,  # noqa: F811
+) -> None:
+    # Round 2 finding 3: each successful budgeted trial builds its components
+    # exactly once, and the device check, the estimate and the trainer all
+    # receive that build's estimator factory (the same object).
+    in_round = {"on": False}
+    built: list[Any] = []
+    device_seen: list[Any] = []
+    estimated: list[Any] = []
+    trained: list[Any] = []
+
+    real_build = Model._build_train_components
+
+    def build(self: Any, *a: Any, **k: Any) -> Any:
+        tc = real_build(self, *a, **k)
+        if in_round["on"]:
+            built.append(tc.estimator_factory)
+        return tc
+
+    real_run = ModelTuningMixin._run_tune_round
+
+    def run(self: Any, *a: Any, **k: Any) -> Any:
+        in_round["on"] = True  # the admission's probe builds come before
+        return real_run(self, *a, **k)
+
+    real_device = LGBMProvider.finalized_device
+    real_estimate = LGBMProvider.estimate_memory
+
+    def device(self: LGBMProvider, **kw: Any) -> Any:
+        if in_round["on"]:
+            device_seen.append(kw["estimator_factory"])
+        return real_device(self, **kw)
+
+    def estimate(self: LGBMProvider, **kw: Any) -> Any:
+        if in_round["on"]:
+            estimated.append(kw["estimator_factory"])
+        return real_estimate(self, **kw)
+
+    real_init = CVTrainer.__init__
+
+    def init(self: Any, *a: Any, **k: Any) -> None:
+        trained.append(k["estimator_factory"])
+        real_init(self, *a, **k)
+
+    monkeypatch.setattr(Model, "_build_train_components", build)
+    monkeypatch.setattr(ModelTuningMixin, "_run_tune_round", run)
+    monkeypatch.setattr(LGBMProvider, "finalized_device", device)
+    monkeypatch.setattr(LGBMProvider, "estimate_memory", estimate)
+    monkeypatch.setattr(CVTrainer, "__init__", init)
+    result = _tune(
+        _cfg(space=_space(), auto=False, n_trials=3), memory_budget_bytes=BIG
+    )
+    assert [t.state for t in result.trials] == ["complete"] * 3
+    assert len(built) == 3  # one build per trial, no second one for training
+    assert len(device_seen) == len(estimated) == len(trained) == 3
+    for i in range(3):
+        assert device_seen[i] is built[i]
+        assert estimated[i] is built[i]
+        assert trained[i] is built[i]
+
+
+# --- round 2 finding 4: a budget too large to print ---------------------------------
+
+#: 4301 digits: ``str()`` of it raises ``ValueError`` under Python's default
+#: integer-string limit (4300 digits).
+HUGE = 10**4300
+BIG = 10**15
+
+
+def test_a_huge_negative_budget_is_config_invalid() -> None:
+    with pytest.raises(LizyMLError) as err:
+        _tune(_cfg(space=_space(), n_trials=2), memory_budget_bytes=-HUGE)
+    assert err.value.code is ErrorCode.CONFIG_INVALID
+    assert err.value.context["reason"] == "invalid_memory_budget"
+    assert "memory_budget_bytes" in str(err.value)
+    repr(err.value)  # the context is printable too
+
+
+def test_a_huge_positive_budget_runs(train_stub: _Recorder) -> None:  # noqa: F811
+    result = _tune(
+        _cfg(space=_space(), auto=False, n_trials=2), memory_budget_bytes=HUGE
+    )
+    assert result.best_params
+    assert len(train_stub.calls) == 2 * N_FOLDS
+
+
+def test_a_refusal_under_a_huge_budget_keeps_its_reason(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    train_stub: _Recorder,  # noqa: F811
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Optuna writes repr() of every FAIL trial's error, and the log line and
+    # the trial error text both carry the budget: none of them may raise.
+    _no_probe(monkeypatch)
+    _raising_estimate(monkeypatch, TypeError("outside catch="), first_only=False)
+    caplog.set_level(logging.INFO)
+    cfg = _cfg(space=_space(), auto=False, n_trials=2)
+    url = _url(tmp_path)
+    err = _tune_failed(cfg, memory_budget_bytes=HUGE, storage=url, study_name="s")
+    assert err.context["memory_refused_this_call"] == 2
+    assert err.context["memory_budget_bytes"] == HUGE  # the value, unchanged
+    assert "reason=assessment_failed" in err.context["first_error"]
+    assert _states(url) == ["FAIL", "FAIL"]
+    lines = _refusals(caplog)
+    assert len(lines) == 2
+    assert all("reason=assessment_failed" in m and "budget=" in m for m in lines)
+
+
+def test_the_refusal_formatter_handles_a_huge_budget(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    budget = _tune_budget.TuneBudget(limit=HUGE)
+    caplog.set_level(logging.INFO)
+    with pytest.raises(LizyMLError) as err:
+        _tune_budget._refuse(
+            budget,
+            "over_budget",
+            "estimate_bytes=1 num_leaves=8",
+            "the estimate is over the budget",
+        )
+    assert err.value.code is ErrorCode.TUNING_FAILED
+    assert err.value.context["reason"] == "over_budget"
+    assert "reason=over_budget" in err.value.user_message
+    assert "budget=" in err.value.user_message
+    repr(err.value)  # what Optuna logs for a FAIL trial
+    assert budget.refused == 1
+    assert len(_refusals(caplog)) == 1
 
 
 def test_a_trial_whose_finalized_device_is_not_cpu_is_refused(

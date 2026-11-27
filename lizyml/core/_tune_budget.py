@@ -12,6 +12,12 @@ and the device check and the estimate read the components that trial trains
 with (DC3): the parameters come from ``trial_inputs``, the device from the
 provider's ``finalized_device`` (what the adapter hands the library), judged
 by its ``device_is_cpu``, and the estimate from its ``estimate_memory``.
+
+``finalized_device`` is the separate :class:`TrialDeviceProvider` capability:
+only a budget requires it, so the two estimates need only
+:class:`MemoryEstimateProvider`. Every integer the budget formats goes through
+:func:`int_text`, so a budget too long for ``str()`` cannot replace a refusal
+with ``ValueError``.
 """
 
 from __future__ import annotations
@@ -25,14 +31,14 @@ from lizyml.core._trial_inputs import trial_inputs
 from lizyml.core._tune_memory_envelope import (
     UNSUPPORTED,
     device_may_leave_cpu,
-    estimate_trial,
+    evaluate_envelope,
 )
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import get_logger
 from lizyml.core.train_components import TrainComponents
 from lizyml.core.types.memory_estimate import MemoryEstimate
 from lizyml.core.types.search_dim import SearchDim
-from lizyml.estimators.provider import MemoryEstimateProvider
+from lizyml.estimators.provider import MemoryEstimateProvider, TrialDeviceProvider
 from lizyml.tuning.trial_failure import describe_exception
 
 _log = get_logger("core.tune_budget")
@@ -41,6 +47,25 @@ _log = get_logger("core.tune_budget")
 BuildComponents = Callable[
     [dict[str, Any], dict[str, Any], dict[str, Any]], TrainComponents
 ]
+
+
+def int_text(value: int | None) -> str:
+    """*value* in decimal, or, when ``str()`` refuses it (Python's limit on
+    integer-string conversion), its sign and bit length. Never raises."""
+    try:
+        return str(value)
+    except ValueError:
+        if not isinstance(value, int):  # not reached: None always prints
+            return "<unprintable>"
+        sign = "-" if value < 0 else ""
+        return f"<{sign}int of {value.bit_length()} bits>"
+
+
+def _value_text(value: Any) -> str:
+    """``repr(value)``, with an ``int`` (not a ``bool``) through ``int_text``."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return int_text(value)
+    return repr(value)
 
 
 @dataclass
@@ -76,18 +101,40 @@ def validate_budget_value(value: Any) -> int | None:
     """*value* when it is ``None`` or a positive ``int``; else ``CONFIG_INVALID``.
 
     A ``bool`` is not a budget. Runs on every call, before the round starts.
+    The value domain has no upper bound; the message formats any ``int``.
     """
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        text = _value_text(value)
         raise LizyMLError(
             code=ErrorCode.CONFIG_INVALID,
             user_message=(
-                f"memory_budget_bytes must be None or a positive int, got {value!r}."
+                f"memory_budget_bytes must be None or a positive int, got {text}."
             ),
-            context={"reason": "invalid_memory_budget", "value": repr(value)},
+            context={"reason": "invalid_memory_budget", "value": text},
         )
     return value
+
+
+def require_trial_device_provider(provider: Any) -> TrialDeviceProvider:
+    """*provider* when it has the :class:`TrialDeviceProvider` capability, else
+    ``CONFIG_INVALID`` (``reason: "memory_estimate_unsupported"``): without the
+    finalized device a budgeted trial's device cannot be checked (DC1)."""
+    if not isinstance(provider, TrialDeviceProvider):
+        raise LizyMLError(
+            code=ErrorCode.CONFIG_INVALID,
+            user_message=(
+                "This model's estimator provider cannot report the device a "
+                "trial trains on; memory_budget_bytes needs the "
+                "TrialDeviceProvider capability."
+            ),
+            context={
+                "reason": "memory_estimate_unsupported",
+                "provider": type(provider).__name__,
+            },
+        )
+    return provider
 
 
 def admit_budget(
@@ -105,14 +152,15 @@ def admit_budget(
     """Refuse a budgeted round that cannot be checked, before any write.
 
     Only a round that runs a trial is judged (a no-trial round closes as it
-    does without a budget). The provider must have the memory capability and
-    estimate the adapter it builds (``memory_estimate_unsupported``, policy
-    5), and no value the round can reach may leave the CPU (policy 6 (a)),
-    decided from the declared layers.
+    does without a budget). The provider must have both the memory and the
+    device capability, and estimate the adapter every candidate point builds
+    (``memory_estimate_unsupported``, policy 5), and no value the round can
+    reach may leave the CPU (policy 6 (a)), decided from the declared layers.
     """
     if not runs_optimize:
         return
     capable = require_memory_provider(provider)
+    require_trial_device_provider(provider)
     if device_may_leave_cpu(capable, dims, fixed, base_model_params):
         raise LizyMLError(
             code=ErrorCode.CONFIG_INVALID,
@@ -146,19 +194,26 @@ def probe_adapter(
     build_components: BuildComponents,
     X: Any,
 ) -> None:
-    """Estimate one representative point -- the base parameters with no
-    sampled value -- and re-raise only ``memory_estimate_unsupported``.
+    """Estimate every candidate point of the next round's envelope -- the
+    points ``estimate_tune_memory`` evaluates (``evaluate_envelope``: the
+    corners, every categorical choice, the provider's extra candidates) --
+    and let only ``memory_estimate_unsupported`` propagate.
 
-    The factory builds the same kind of adapter for every trial, so an
-    adapter the provider cannot estimate shows here. Any other failure of
-    this point is logged and left to the per-trial guard, which refuses each
-    trial it hits.
+    The bound: only these points are probed. A factory may build a different
+    adapter for other parameter values, so a foreign adapter that appears
+    only at another sampled point is not seen here; the per-trial guard
+    refuses that trial as ``assessment_failed``. Any other failure of a
+    candidate point is logged and left to the per-trial guard as well.
+
+    Raises:
+        LizyMLError: ``CONFIG_INVALID`` (``reason:
+            "memory_estimate_unsupported"``) when a candidate point builds an
+            adapter the provider cannot estimate.
     """
     try:
-        estimate_trial(
+        found = evaluate_envelope(
             provider,
-            list(dims),
-            {},
+            dims,
             base_model_params=base_model_params,
             base_smart_params=base_smart_params,
             fixed=fixed,
@@ -169,15 +224,21 @@ def probe_adapter(
     except LizyMLError as exc:
         if exc.context.get("reason") == UNSUPPORTED:
             raise
-        _probe_failed(exc)
+        _probe_failed(describe_exception(exc))
+        return
     except Exception as exc:  # noqa: BLE001 -- logged; each trial is judged
-        _probe_failed(exc)
+        # Outside a point (the candidate values themselves), left to the
+        # per-trial guard like a point's failure.
+        _probe_failed(describe_exception(exc))
+        return
+    for failure in found.failures:
+        _probe_failed(failure)
 
 
-def _probe_failed(exc: BaseException) -> None:
+def _probe_failed(error: str) -> None:
     _log.debug(
         "event='tune.budget.probe_failed' error=%s (left to the trial guard)",
-        describe_exception(exc),
+        error,
     )
 
 
@@ -255,7 +316,8 @@ def build_trial(
         _refuse(
             budget,
             "over_budget",
-            f"estimate_bytes={est.estimate_bytes} num_leaves={est.num_leaves}",
+            f"estimate_bytes={int_text(est.estimate_bytes)} "
+            f"num_leaves={int_text(est.num_leaves)}",
             "the estimate is over the budget",
         )
     return built
@@ -263,19 +325,25 @@ def build_trial(
 
 def _refuse(budget: TuneBudget, reason: str, fields: str, why: str) -> NoReturn:
     """Count, log and raise one refusal; the reason and the budget lead both
-    the log line and the message, so a cut ``first_error`` keeps them."""
+    the log line and the message, so a cut ``first_error`` keeps them.
+
+    The budget is formatted once through ``int_text``, and the trial error's
+    context carries that text: Optuna logs ``repr()`` of every FAIL trial's
+    error, which must not raise for any budget.
+    """
     budget.refused += 1
+    limit = int_text(budget.limit)
     _log.info(
         "event='tune.trial.memory_refused' reason=%s budget=%s %s",
         reason,
-        budget.limit,
+        limit,
         fields,
     )
     raise LizyMLError(
         code=ErrorCode.TUNING_FAILED,
         user_message=(
             f"Trial refused by memory_budget_bytes: reason={reason} "
-            f"budget={budget.limit} {fields} ({why})."
+            f"budget={limit} {fields} ({why})."
         ),
-        context={"reason": reason, "memory_budget_bytes": budget.limit},
+        context={"reason": reason, "memory_budget_bytes": limit},
     )

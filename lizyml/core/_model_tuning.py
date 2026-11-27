@@ -244,9 +244,12 @@ class ModelTuningMixin:
                 budget). It is compared with the estimate of extra CPU
                 memory, not the process's resident set. It is per call:
                 never stored, and it may change on resume. A round that can
-                reach a non-CPU device, or a provider that cannot estimate
-                memory or the adapter it builds, is refused before any
-                write; a round that runs no trial closes as without a budget.
+                reach a non-CPU device, a provider without the memory and
+                device capabilities, or one that cannot estimate the adapter
+                built at a candidate point of the round's envelope, is refused
+                before any write (a foreign adapter at another sampled point
+                refuses that trial); a round that runs no trial closes as
+                without a budget.
 
         Returns:
             :class:`~lizyml.core.types.tuning_result.TuningResult` with
@@ -277,8 +280,10 @@ class ModelTuningMixin:
                 resumed round whose earlier trials were all refused reports 0).
             LizyMLError with CONFIG_INVALID for a ``memory_budget_bytes``
                 that is not ``None`` or a positive ``int``, a budgeted round
-                that runs trials but whose provider cannot estimate memory
-                or the adapter it builds, or whose device may not be the CPU.
+                that runs trials but whose provider lacks
+                ``MemoryEstimateProvider`` or ``TrialDeviceProvider``, cannot
+                estimate the adapter of a candidate point, or whose device
+                may not be the CPU.
         """
         cfg = self._cfg
         budget = TuneBudget(validate_budget_value(memory_budget_bytes))
